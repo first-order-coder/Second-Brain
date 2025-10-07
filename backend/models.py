@@ -49,6 +49,7 @@ class SummarySentenceCitation(Base):
     start_char = Column(Integer, nullable=True)
     end_char = Column(Integer, nullable=True)
     score = Column(Float, nullable=True)
+    preview_text = Column(Text, nullable=True)  # Added for better citation previews
 
 # Create indexes for better query performance
 Index('idx_summary_source_id', Summary.source_id)

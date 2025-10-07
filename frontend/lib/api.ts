@@ -18,12 +18,32 @@ export async function getSummary(sourceId: string): Promise<Summary> {
   return res.json();
 }
 
-export async function refreshSummary(sourceId: string): Promise<void> {
+export async function refreshSummary(sourceId: string): Promise<{status: string, task_id?: string, summary_id?: string}> {
   const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/summaries/${sourceId}/refresh`, { 
     method: 'POST' 
   });
+  const text = await res.text();
+  
   if (!res.ok) {
-    throw new Error('Failed to refresh summary');
+    console.error('Refresh failed:', res.status, text);
+    let errorMessage = 'Failed to refresh summary';
+    try {
+      const errorData = JSON.parse(text);
+      if (errorData.detail) {
+        errorMessage = errorData.detail;
+      } else if (errorData.error) {
+        errorMessage = errorData.error;
+      }
+    } catch (e) {
+      // Use default error message if parsing fails
+    }
+    throw new Error(errorMessage);
+  }
+  
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error('Invalid response from server');
   }
 }
 

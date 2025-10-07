@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import List, Optional, Literal
 import os
 import uuid
+import logging
 from pathlib import Path
 import sqlite3
 import json
@@ -20,10 +21,26 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+# Create specific loggers
+summary_logger = logging.getLogger("summaries")
+citations_logger = logging.getLogger("citations")
+
 app = FastAPI(title="PDF to Flashcards API", version="1.0.0")
 
 # Feature flag for summary citations
 FEATURE_SUMMARY_CITATIONS = os.getenv('FEATURE_SUMMARY_CITATIONS', 'true').lower() == 'true'
+
+# Summary configuration
+SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "gpt-4o-mini")
+TOP_K = int(os.getenv("SUMMARY_EVIDENCE_TOPK", "6"))
+THRESH = float(os.getenv("SUMMARY_SUPPORT_THRESHOLD", "0.74"))
+USE_CELERY = os.getenv("USE_CELERY", "false").lower() == "true"
 
 # SQLAlchemy database setup
 engine = create_engine('sqlite:///pdf_flashcards.db')
@@ -326,91 +343,172 @@ async def get_flashcards(pdf_id: str):
 async def root():
     return {"message": "PDF to Flashcards API is running"}
 
-# Summary endpoints (feature-flagged)
-@app.get("/summaries/{source_id}", response_model=SummaryOut)
-async def get_summary(source_id: str, db: Session = Depends(get_db)):
-    """Get summary with citations for a source"""
-    if not FEATURE_SUMMARY_CITATIONS:
-        raise HTTPException(status_code=404, detail="Feature not enabled")
-    
-    # Check if source exists
+# Helper functions for summary endpoints
+def source_exists(source_id: str) -> bool:
+    """Check if source exists in database"""
     conn = sqlite3.connect("pdf_flashcards.db")
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM pdfs WHERE id = ?", (source_id,))
-    if not cursor.fetchone():
-        conn.close()
-        raise HTTPException(status_code=404, detail="Source not found")
+    result = cursor.fetchone()
     conn.close()
-    
-    # Get summary from SQLAlchemy
-    summary = db.query(Summary).filter(Summary.source_id == source_id).first()
-    
-    if not summary:
-        return SummaryOut(summary_id="", source_id=source_id, sentences=[])
-    
-    # Get sentences with citations
-    sentences = db.query(SummarySentence).filter(
-        SummarySentence.summary_id == summary.id
-    ).order_by(SummarySentence.order_index).all()
-    
-    sentence_data = []
-    for sentence in sentences:
-        citations = db.query(SummarySentenceCitation).filter(
-            SummarySentenceCitation.sentence_id == sentence.id
-        ).all()
-        
-        citation_data = []
-        for c in citations:
-            # Generate preview text from chunk
-            preview_text = None
-            if c.start_char is not None and c.end_char is not None:
-                # For now, we'll use a placeholder since we don't have the chunk text readily available
-                # In a real implementation, you'd fetch the chunk text from the database
-                preview_text = f"Chunk excerpt (chars {c.start_char}-{c.end_char})"
-            else:
-                preview_text = f"Chunk {c.chunk_id} excerpt"
-            
-            citation_data.append(CitationOut(
-                chunk_id=c.chunk_id,
-                start_char=c.start_char,
-                end_char=c.end_char,
-                score=c.score,
-                preview_text=preview_text
-            ))
-        
-        sentence_data.append(SentenceOut(
-            id=sentence.id,
-            order_index=sentence.order_index,
-            sentence_text=sentence.sentence_text,
-            support_status=sentence.support_status,
-            citations=citation_data
-        ))
-    
-    return SummaryOut(
-        summary_id=summary.id,
-        source_id=summary.source_id,
-        sentences=sentence_data
-    )
+    return result is not None
 
-@app.post("/summaries/{source_id}/refresh", status_code=202)
-async def refresh_summary(source_id: str):
-    """Enqueue summary generation task"""
+def enqueue_build_summary(source_id: str, top_k: int, thresh: float, model: str) -> str:
+    """Enqueue summary build task to Celery"""
+    task = build_summary_task.delay(source_id)
+    return task.id
+
+async def build_summary_inline(source_id: str, top_k: int, thresh: float, model: str):
+    """Run summary build inline for development"""
+    from services.summary_builder import build_summary_inline as service_build
+    return await service_build(source_id, top_k, thresh, model)
+
+def get_chunk_text(chunk_id: str) -> str:
+    """Get text content for a chunk"""
+    from services.summary_builder import get_chunk_text as service_get_chunk_text
+    return service_get_chunk_text(chunk_id)
+
+def slice_preview(text: str, start_char: int, end_char: int) -> str:
+    """Slice text for preview with fallback"""
+    from services.summary_builder import slice_preview as service_slice_preview
+    return service_slice_preview(text, start_char, end_char)
+
+# Summary endpoints (feature-flagged)
+@app.get("/summaries/{source_id}")
+async def get_summary(source_id: str, db: Session = Depends(get_db)):
+    """Get summary with citations for a source - never returns 500"""
     if not FEATURE_SUMMARY_CITATIONS:
         raise HTTPException(status_code=404, detail="Feature not enabled")
     
-    # Check if source exists
-    conn = sqlite3.connect("pdf_flashcards.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM pdfs WHERE id = ?", (source_id,))
-    if not cursor.fetchone():
+    try:
+        # Check if source exists
+        if not source_exists(source_id):
+            summary_logger.warning(f"[get] Source not found: {source_id}")
+            return {"summary_id": None, "source_id": source_id, "sentences": []}
+        
+        # Get summary from SQLAlchemy
+        summary = db.query(Summary).filter(Summary.source_id == source_id).first()
+        
+        if not summary:
+            summary_logger.info(f"[get] No summary found for source: {source_id}")
+            return {"summary_id": None, "source_id": source_id, "sentences": []}
+        
+        # Get sentences with citations
+        sentences = db.query(SummarySentence).filter(
+            SummarySentence.summary_id == summary.id
+        ).order_by(SummarySentence.order_index).all()
+        
+        sentence_data = []
+        for sentence in sentences:
+            citations = db.query(SummarySentenceCitation).filter(
+                SummarySentenceCitation.sentence_id == sentence.id
+            ).all()
+            
+            citation_data = []
+            for c in citations:
+                # Use stored preview_text if available, otherwise generate it
+                preview_text = c.preview_text
+                if not preview_text:
+                    if c.start_char is not None and c.end_char is not None:
+                        chunk_text = get_chunk_text(c.chunk_id)
+                        preview_text = slice_preview(chunk_text, c.start_char, c.end_char)
+                    else:
+                        chunk_text = get_chunk_text(c.chunk_id)
+                        preview_text = chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text
+                
+                citation_data.append({
+                    "chunk_id": c.chunk_id,
+                    "start_char": c.start_char,
+                    "end_char": c.end_char,
+                    "score": c.score,
+                    "preview_text": preview_text
+                })
+            
+            sentence_data.append({
+                "id": sentence.id,
+                "order_index": sentence.order_index,
+                "sentence_text": sentence.sentence_text,
+                "support_status": sentence.support_status,
+                "citations": citation_data
+            })
+        
+        summary_logger.info(f"[get] Retrieved summary for source: {source_id}, sentences: {len(sentence_data)}")
+        return {
+            "summary_id": summary.id,
+            "source_id": summary.source_id,
+            "sentences": sentence_data
+        }
+        
+    except Exception as e:
+        summary_logger.exception(f"[get] failed source={source_id}: {e}")
+        return {"summary_id": None, "source_id": source_id, "sentences": [], "error": "fetch_failed"}
+
+@app.post("/summaries/{source_id}/refresh")
+async def refresh_summary(source_id: str):
+    """Enqueue or run summary build for a source"""
+    if not FEATURE_SUMMARY_CITATIONS:
+        raise HTTPException(status_code=404, detail="Feature not enabled")
+    
+    try:
+        # Verify source exists
+        if not source_exists(source_id):
+            summary_logger.warning(f"[refresh] Source not found: {source_id}")
+            raise HTTPException(status_code=404, detail="Source not found")
+        
+        # Enqueue to Celery/RQ if available, else run inline in DEV
+        if USE_CELERY:
+            task_id = enqueue_build_summary(source_id, TOP_K, THRESH, SUMMARY_MODEL)
+            summary_logger.info(f"[refresh] enqueued source={source_id} task={task_id}")
+            return JSONResponse({"status": "queued", "task_id": task_id}, status_code=202)
+        else:
+            summary_logger.info(f"[refresh] running inline source={source_id}")
+            result = await build_summary_inline(source_id, TOP_K, THRESH, SUMMARY_MODEL)
+            return {"status": "ok", "summary_id": result.summary_id}
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        summary_logger.exception(f"[refresh] failed source={source_id}: {e}")
+        # Return structured error for UI
+        return JSONResponse({"status": "error", "error": "refresh_failed", "detail": str(e)}, status_code=500)
+
+@app.options("/summaries/{source_id}/refresh")
+async def refresh_summary_options(source_id: str):
+    """Handle CORS preflight for refresh endpoint"""
+    return JSONResponse({"message": "OK"})
+
+@app.get("/health/summary")
+async def health_check():
+    """Health check for summary functionality"""
+    try:
+        # Check database connectivity
+        conn = sqlite3.connect("pdf_flashcards.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM pdfs")
+        pdf_count = cursor.fetchone()[0]
         conn.close()
-        raise HTTPException(status_code=404, detail="Source not found")
-    conn.close()
-    
-    # Enqueue Celery task
-    task = build_summary_task.delay(source_id)
-    
-    return {"message": "Summary generation started", "task_id": task.id}
+        
+        # Check OpenAI key presence (masked)
+        openai_key = os.getenv("OPENAI_API_KEY")
+        has_openai = bool(openai_key)
+        
+        return {
+            "ok": True,
+            "database_writable": True,
+            "pdf_count": pdf_count,
+            "openai_configured": has_openai,
+            "openai_key_masked": f"{openai_key[:8]}..." if openai_key else None,
+            "feature_enabled": FEATURE_SUMMARY_CITATIONS,
+            "use_celery": USE_CELERY,
+            "config": {
+                "model": SUMMARY_MODEL,
+                "top_k": TOP_K,
+                "threshold": THRESH
+            }
+        }
+    except Exception as e:
+        summary_logger.exception(f"[health] check failed: {e}")
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 if __name__ == "__main__":
     import uvicorn

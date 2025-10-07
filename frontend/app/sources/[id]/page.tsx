@@ -15,6 +15,8 @@ export default function SourcePage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [polling, setPolling] = useState(false)
+  const [pollCount, setPollCount] = useState(0)
 
   useEffect(() => {
     loadSummary()
@@ -37,16 +39,51 @@ export default function SourcePage() {
     try {
       setRefreshing(true)
       setError(null)
-      await refreshSummary(sourceId)
-      // Wait a moment then reload the summary
-      setTimeout(() => {
-        loadSummary()
-      }, 2000)
+      setPollCount(0)
+      
+      const result = await refreshSummary(sourceId)
+      
+      if (result.status === 'queued') {
+        // Start polling for completion
+        setPolling(true)
+        startPolling()
+      } else if (result.status === 'ok') {
+        // Inline completion, reload summary
+        setTimeout(() => {
+          loadSummary()
+        }, 1000)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to refresh summary')
+      setPolling(false)
     } finally {
       setRefreshing(false)
     }
+  }
+
+  const startPolling = () => {
+    const pollInterval = setInterval(async () => {
+      if (pollCount >= 20) { // Max 20 polls (30 seconds)
+        clearInterval(pollInterval)
+        setPolling(false)
+        setError('Summary generation timed out. Please try again.')
+        return
+      }
+      
+      try {
+        await loadSummary()
+        // Check if summary now has sentences
+        if (summary && summary.sentences && summary.sentences.length > 0) {
+          clearInterval(pollInterval)
+          setPolling(false)
+          return
+        }
+        setPollCount(prev => prev + 1)
+      } catch (err) {
+        console.error('Polling error:', err)
+        setPollCount(prev => prev + 1)
+      }
+    }, 1500)
   }
 
   return (
@@ -96,6 +133,19 @@ export default function SourcePage() {
             </div>
           )}
 
+          {/* Polling Status */}
+          {polling && (
+            <div className="mb-6 rounded-2xl border border-blue-500/20 bg-blue-900/20 p-4 flex items-center">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-400 mr-3"></div>
+              <div>
+                <h3 className="text-blue-400 font-medium">Building Summary...</h3>
+                <p className="text-blue-300 text-sm mt-1">
+                  Generating citation-backed summary (attempt {pollCount}/20)
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Summary Component */}
           {loading ? (
             <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-8">
@@ -119,7 +169,7 @@ export default function SourcePage() {
             <SummaryWithCitations 
               data={summary}
               onRefresh={handleRefresh}
-              isRefreshing={refreshing}
+              isRefreshing={refreshing || polling}
             />
           ) : (
             <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-8 text-center">

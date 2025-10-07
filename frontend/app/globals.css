@@ -145,3 +145,72 @@ body {
 .flip-card-front * , .flip-card-back * {
   -webkit-transform: translateZ(0);
 }
+
+/* ---------- SURFACE SYSTEM (Light-focused) ---------- */
+/* Base page background is already slate-50; we add layered surfaces for contrast. */
+
+.sb-surface-0 { /* plain container (hero text areas) */
+  @apply bg-transparent;
+}
+
+.sb-surface-1 { /* soft panel (quick start, pills, small panels) */
+  @apply rounded-2xl bg-slate-100 border border-slate-200/80 shadow-sm;
+}
+.dark .sb-surface-1 { @apply bg-slate-900/60 border-white/10; }
+
+.sb-surface-2 { /* prominent card (uploader box, feature highlights, demo panel) */
+  @apply rounded-2xl bg-white border border-slate-200 shadow;
+}
+.dark .sb-surface-2 { @apply bg-slate-900/60 border-white/10 shadow-none; }
+
+.sb-surface-hover { /* subtle lift on hover for Light */
+  @apply transition-colors hover:border-slate-300;
+}
+
+/* Pills / chips that sit on surfaces */
+.sb-pill {
+  @apply inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700;
+}
+.dark .sb-pill { @apply border-white/10 bg-slate-900/60 text-slate-300; }
+
+/* Section rhythm */
+.sb-section { @apply py-12 sm:py-16; }
+
+/* Typographic helpers */
+.sb-kicker { @apply text-xs font-medium tracking-wide uppercase text-slate-500; }
+.sb-muted  { @apply text-slate-600; }
+
+/* --- BAND BACKGROUNDS (Light-only) --- */
+/* A soft band that spans full width behind card sections */
+.sb-band {
+  @apply bg-slate-100;
+}
+.dark .sb-band {
+  @apply bg-transparent;
+}
+
+/* Optional gradient band for more depth (use on features if preferred) */
+.sb-band-grad {
+  @apply bg-gradient-to-b from-slate-100 to-slate-50;
+}
+.dark .sb-band-grad {
+  @apply from-transparent to-transparent;
+}
+
+/* Slightly stronger elevation than sb-surface-2 without being heavy */
+.sb-elevated {
+  @apply ring-1 ring-slate-200 shadow-md;
+}
+.dark .sb-elevated {
+  @apply ring-white/10 shadow-none;
+}
+
+/* ---- Light mode helpers for landing polish (non-invasive) ---- */
+.sb-card { @apply rounded-2xl border border-slate-200/80 bg-white shadow-sm; }
+.sb-card-hover { @apply transition-colors hover:border-slate-300; }
+.sb-muted { @apply text-slate-600; }
+.sb-quiet { @apply text-slate-500; }
+.sb-kicker { @apply text-xs font-medium tracking-wide uppercase text-slate-500; }
+.sb-section { @apply py-12 sm:py-16; }
+.sb-btn-primary { @apply inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-500; }
+.sb-btn-secondary { @apply inline-flex items-center justify-center rounded-xl px-3 py-1.5 text-sm border border-slate-300 bg-white text-slate-700 hover:bg-slate-50; }
