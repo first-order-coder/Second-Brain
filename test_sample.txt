@@ -1,0 +1,20 @@
+This is a test document for PDF upload functionality.
+
+The PDF to Flashcards MVP should be able to:
+1. Upload PDF files successfully
+2. Extract text content from PDFs
+3. Generate flashcards using AI
+4. Display flashcards with flip animations
+
+This test document contains educational content about machine learning concepts:
+
+Machine Learning is a subset of artificial intelligence that focuses on algorithms that can learn from data. Supervised learning uses labeled training data to make predictions, while unsupervised learning finds patterns in unlabeled data. Common algorithms include linear regression, decision trees, and neural networks.
+
+Deep learning is a subset of machine learning that uses neural networks with multiple layers. It has revolutionized fields like computer vision, natural language processing, and speech recognition.
+
+Key concepts in machine learning include:
+- Training data: The dataset used to train the model
+- Features: Input variables used to make predictions
+- Labels: The target variable we want to predict
+- Overfitting: When a model performs well on training data but poorly on new data
+- Cross-validation: A technique to evaluate model performance
