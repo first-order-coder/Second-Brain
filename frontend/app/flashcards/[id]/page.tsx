@@ -31,8 +31,7 @@ export default function FlashcardPage() {
 
   const fetchFlashcards = async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-      const response = await fetch(`${apiUrl}/flashcards/${pdfId}`)
+      const response = await fetch(`/api/flashcards/${pdfId}`)
       
       if (!response.ok) {
         throw new Error('Failed to fetch flashcards')

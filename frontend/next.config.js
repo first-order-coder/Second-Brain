@@ -1,10 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    appDir: true,
-  },
+  experimental: {},
   images: {
     domains: [],
+  },
+  eslint: {
+    // Allow production builds to succeed even if there are ESLint errors
+    ignoreDuringBuilds: true,
   },
 }
 

@@ -31,6 +31,13 @@ logging.basicConfig(
 summary_logger = logging.getLogger("summaries")
 citations_logger = logging.getLogger("citations")
 
+# Import YouTube ingest routers (feature-flagged)
+from routes.ingest import router as ingest_router
+from routes.ingest_debug import router as ingest_debug_router
+
+# Import YouTube flashcards router
+from routes.youtube_cards import router as youtube_cards_router
+
 app = FastAPI(title="PDF to Flashcards API", version="1.0.0")
 
 # Feature flag for summary citations
@@ -83,6 +90,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Register YouTube ingest routers (feature-flagged)
+FEATURE_YOUTUBE_INGEST = os.getenv("FEATURE_YOUTUBE_INGEST", "true").lower() == "true"
+ENABLE_DEBUG_ENDPOINTS = os.getenv("ENABLE_DEBUG_ENDPOINTS", "false").lower() == "true"
+if FEATURE_YOUTUBE_INGEST:
+    app.include_router(ingest_router)
+    if ENABLE_DEBUG_ENDPOINTS:
+        app.include_router(ingest_debug_router)
+        logging.info("YouTube ingest debug endpoints enabled")
+    logging.info("YouTube ingest feature enabled")
+
+# Register YouTube flashcards router (always enabled)
+app.include_router(youtube_cards_router)
+logging.info("YouTube flashcards feature enabled")
+
 # Create uploads directory if it doesn't exist
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
@@ -115,6 +136,69 @@ def init_db():
     
     conn.commit()
     conn.close()
+
+# -------- YouTube flashcards save endpoint --------
+class SaveYouTubeCard(BaseModel):
+    front: str
+    back: str
+    cloze: Optional[str] = None
+    start_s: Optional[float] = None
+    end_s: Optional[float] = None
+    evidence: Optional[str] = None
+    difficulty: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+class SaveYouTubeDeckRequest(BaseModel):
+    url: str
+    video_id: Optional[str] = None
+    title: Optional[str] = None
+    lang: Optional[str] = None
+    cards: List[SaveYouTubeCard]
+
+@app.post("/youtube/save")
+async def save_youtube_deck(payload: SaveYouTubeDeckRequest):
+    """Save generated YouTube cards into the existing SQLite-backed deck.
+
+    Creates a new entry in `pdfs` as a logical source and inserts cards into `flashcards`.
+    Returns the created `pdf_id` for navigation to the review page.
+    """
+    try:
+        # Allocate a synthetic pdf_id to reuse existing flashcards viewer
+        pdf_id = str(uuid.uuid4())
+
+        # Use a descriptive filename-like label for the source row
+        label_parts = ["youtube"]
+        if payload.video_id:
+            label_parts.append(payload.video_id)
+        if payload.title:
+            label_parts.append(payload.title[:60])
+        source_label = " | ".join(label_parts)
+
+        conn = sqlite3.connect("pdf_flashcards.db")
+        cursor = conn.cursor()
+
+        # Insert source row as completed
+        cursor.execute(
+            "INSERT INTO pdfs (id, filename, status) VALUES (?, ?, ?)",
+            (pdf_id, source_label, "completed"),
+        )
+
+        # Insert cards
+        for idx, c in enumerate(payload.cards, start=1):
+            question = c.front.strip() if c.front else ""
+            answer = c.back.strip() if c.back else ""
+            cursor.execute(
+                "INSERT INTO flashcards (pdf_id, question, answer, card_number) VALUES (?, ?, ?, ?)",
+                (pdf_id, question, answer, idx),
+            )
+
+        conn.commit()
+        conn.close()
+
+        return {"pdf_id": pdf_id, "count": len(payload.cards)}
+    except Exception as e:
+        logging.exception(f"Failed to save YouTube deck: {e}")
+        raise HTTPException(status_code=500, detail=f"Save failed: {str(e)}")
 
 @app.on_event("startup")
 async def startup_event():

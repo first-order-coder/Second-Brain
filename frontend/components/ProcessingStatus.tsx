@@ -31,8 +31,7 @@ export default function ProcessingStatus({ pdfId, onComplete, onError }: Process
   useEffect(() => {
     const pollStatus = async () => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-        const response = await fetch(`${apiUrl}/status/${pdfId}`)
+        const response = await fetch(`/api/status/${pdfId}`)
         const data = await response.json()
         setStatus(data)
 

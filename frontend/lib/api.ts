@@ -1,7 +1,7 @@
 import { Summary } from './types';
 
 export async function getSummary(sourceId: string): Promise<Summary> {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/summaries/${sourceId}`, { 
+  const res = await fetch(`/api/summaries/${sourceId}`, { 
     cache: 'no-store' 
   });
   if (!res.ok) {
@@ -19,7 +19,7 @@ export async function getSummary(sourceId: string): Promise<Summary> {
 }
 
 export async function refreshSummary(sourceId: string): Promise<{status: string, task_id?: string, summary_id?: string}> {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/summaries/${sourceId}/refresh`, { 
+  const res = await fetch(`/api/summaries/${sourceId}/refresh`, { 
     method: 'POST' 
   });
   const text = await res.text();
@@ -48,5 +48,15 @@ export async function refreshSummary(sourceId: string): Promise<{status: string,
 }
 
 // ============ Inline editor helpers (additive) ============
- 
 
+// ============ YouTube ingest helper (additive) ============
+export async function ingestYoutube(url: string) {
+  const res = await fetch('/api/ingest/url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, kind: 'youtube' })
+  })
+  const text = await res.text()
+  if (!res.ok) throw new Error(text || `Ingest failed: ${res.status}`)
+  return JSON.parse(text)
+}

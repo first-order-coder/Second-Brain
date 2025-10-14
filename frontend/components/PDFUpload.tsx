@@ -49,8 +49,7 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
       const formData = new FormData()
       formData.append('file', file)
 
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-      const response = await fetch(`${apiUrl}/upload-pdf`, {
+      const response = await fetch('/api/upload/pdf', {
         method: 'POST',
         body: formData,
       })
@@ -94,8 +93,7 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
         message: 'Generating flashcards with AI...' 
       })
 
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-      const response = await fetch(`${apiUrl}/generate-flashcards/${pdfId}`, {
+      const response = await fetch(`/api/generate-flashcards/${pdfId}`, {
         method: 'POST',
       })
 
@@ -107,8 +105,7 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
       // Poll for completion
       const pollStatus = async () => {
         try {
-          const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-          const statusResponse = await fetch(`${apiUrl}/status/${pdfId}`)
+          const statusResponse = await fetch(`/api/status/${pdfId}`)
           const statusData = await statusResponse.json()
           
           if (statusData.status === 'completed') {

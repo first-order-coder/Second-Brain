@@ -105,6 +105,17 @@ npm install
 npm run dev
 ```
 
+### YouTube Proxy Troubleshooting
+
+- Ensure `NEXT_PUBLIC_API_URL` points to FastAPI:
+  - Local: `http://localhost:8000`
+  - Docker Compose: `http://backend:8000`
+- Test backend ping:
+  - `GET http://localhost:8000/youtube/flashcards/ping` → `{ "ok": true }`
+- Test proxy route:
+  - `POST http://localhost:3000/api/youtube/flashcards` with `{ "url": "https://youtu.be/VIDEO" }`
+- If proxy fails, it will return a descriptive JSON error instead of a generic network error.
+
 ## 📁 Project Structure
 
 ```

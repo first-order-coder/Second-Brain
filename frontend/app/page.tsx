@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { BookOpen, Sparkles, Layers, Upload, FileUp, Brain, Link as LinkIcon, Youtube, FileText } from 'lucide-react'
 import PDFUpload from '@/components/PDFUpload'
+import YTToCards from '@/components/YTToCards'
 import { useRouter } from 'next/navigation'
 
 export default function Page() {
@@ -48,13 +49,19 @@ export default function Page() {
             className="mt-8 sb-section sb-band"
           >
             <div className="mx-auto max-w-6xl px-4 grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-            {/* LEFT: Upload Component */}
-            <div className="sb-surface-2 sb-surface-hover p-5">
-              <PDFUpload 
-                onUploadSuccess={handleUploadSuccess}
-                onUploadStart={() => setIsUploading(true)}
-                onUploadEnd={() => setIsUploading(false)}
-              />
+            {/* LEFT: Upload Components */}
+            <div className="space-y-6">
+              <div className="sb-surface-2 sb-surface-hover p-5">
+                <PDFUpload 
+                  onUploadSuccess={handleUploadSuccess}
+                  onUploadStart={() => setIsUploading(true)}
+                  onUploadEnd={() => setIsUploading(false)}
+                />
+              </div>
+              
+              <div className="sb-surface-2 sb-surface-hover p-5">
+                <YTToCards />
+              </div>
             </div>
 
             {/* RIGHT: Quick Start */}
