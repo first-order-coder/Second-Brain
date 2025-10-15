@@ -1,245 +1,199 @@
-# PDF to Flashcards Generator - MVP
+# Second Brain - AI-Powered Learning Platform
 
-A minimal viable product that converts PDF documents into AI-generated flashcards for efficient studying. Upload any PDF and get 10 intelligent flashcards with smooth animations and intuitive navigation.
+A comprehensive AI-powered learning platform that converts PDF documents and YouTube videos into interactive flashcards and summaries for enhanced learning.
 
 ## 🚀 Features
 
-- **Drag & Drop Upload**: Simple PDF upload with validation (max 10MB)
-- **AI-Powered Generation**: Creates 10 high-quality flashcards using OpenAI
-- **Interactive Study**: Smooth flip animations and navigation between cards
-- **Mobile Responsive**: Works perfectly on all devices
-- **No Registration**: Start using immediately, no signup required
-- **Real-time Processing**: Live status updates during flashcard generation
+### 📄 PDF Flashcard Generation
+- Upload PDF documents and automatically generate flashcards
+- AI-powered content extraction and question generation
+- Interactive flashcard interface for spaced repetition learning
 
-## 🛠 Tech Stack
+### 🎥 YouTube Video Processing
+- Extract transcripts from YouTube videos
+- Generate flashcards from video content with timestamps
+- Support for multiple languages and auto-generated captions
 
-### Frontend
-- **Next.js 14** with TypeScript
-- **Tailwind CSS** for styling
-- **Framer Motion** for animations
-- **React Dropzone** for file uploads
-- **Lucide React** for icons
+### 📚 Deck Management
+- Organize flashcards into study decks
+- Save cards from different sources into unified decks
+- Track learning progress and performance
+
+### 🧠 AI-Powered Summaries
+- Generate citation-backed summaries from source materials
+- Interactive summaries with source references
+- Support for both PDF and YouTube content
+
+## 🛠️ Tech Stack
 
 ### Backend
-- **FastAPI** with Python
-- **SQLite** database for MVP simplicity
-- **PyPDF2** for PDF text extraction
-- **OpenAI API** for flashcard generation
-- **Uvicorn** ASGI server
+- **FastAPI** - Modern Python web framework
+- **Celery** - Distributed task queue for background processing
+- **Redis** - Message broker and caching
+- **SQLAlchemy** - Database ORM
+- **OpenAI API** - AI content generation
 
-### Deployment
-- **Docker** containerization
-- **Docker Compose** for orchestration
+### Frontend
+- **Next.js 14** - React framework with App Router
+- **TypeScript** - Type-safe JavaScript
+- **Tailwind CSS** - Utility-first CSS framework
+- **shadcn/ui** - Modern UI components
 
-## 📋 Prerequisites
-
-- Docker and Docker Compose
-- OpenAI API key
-- Git
+### Infrastructure
+- **Docker** - Containerized deployment
+- **Docker Compose** - Multi-service orchestration
 
 ## 🚀 Quick Start
 
-### 1. Clone the Repository
+### Prerequisites
+- Docker and Docker Compose
+- OpenAI API key
 
-```bash
-git clone <repository-url>
-cd pdf-flashcards-mvp
+### Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone git@github.com:first-order-coder/Second-Brain.git
+   cd Second-Brain
+   ```
+
+2. **Set up environment variables**
+   ```bash
+   # Create .env file in the project root
+   echo "OPENAI_API_KEY=your_openai_api_key_here" > .env
+   ```
+
+3. **Start the application**
+   ```bash
+   docker-compose up -d
+   ```
+
+4. **Access the application**
+   - Frontend: http://localhost:3000
+   - Backend API: http://localhost:8000
+   - API Documentation: http://localhost:8000/docs
+
+## 📖 Usage
+
+### PDF Flashcard Generation
+1. Navigate to the main page
+2. Upload a PDF document using the file upload interface
+3. Wait for processing to complete
+4. Review and study the generated flashcards
+5. Optionally save cards to a deck for future study
+
+### YouTube Video Processing
+1. Paste a YouTube video URL in the YouTube section
+2. Select language preferences for transcript extraction
+3. Generate flashcards from the video content
+4. Review flashcards with timestamps and evidence
+5. Save cards to a deck for organized study
+
+### Deck Management
+1. Create and manage study decks
+2. Add cards from different sources to the same deck
+3. Use the deck interface for focused study sessions
+4. Track progress and performance over time
+
+## 🏗️ Project Structure
+
+```
+├── backend/                 # FastAPI backend application
+│   ├── routes/             # API route handlers
+│   ├── services/           # Business logic services
+│   ├── models.py           # Database models
+│   ├── main.py            # FastAPI application entry point
+│   └── worker_tasks.py    # Celery background tasks
+├── frontend/               # Next.js frontend application
+│   ├── app/               # Next.js App Router pages and API routes
+│   ├── components/        # React components
+│   ├── lib/               # Utility functions and configurations
+│   └── types.ts           # TypeScript type definitions
+├── docker-compose.yml     # Docker services configuration
+└── README.md             # This file
 ```
 
-### 2. Set Up Environment Variables
+## 🔧 Development
 
-```bash
-cp env.example .env
-```
+### Running in Development Mode
 
-Edit `.env` and add your OpenAI API key:
+1. **Backend Development**
+   ```bash
+   cd backend
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   uvicorn main:app --reload --host 0.0.0.0 --port 8000
+   ```
 
+2. **Frontend Development**
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+
+3. **Background Worker**
+   ```bash
+   cd backend
+   celery -A worker_tasks worker --loglevel=info
+   ```
+
+### Environment Variables
+
+#### Backend (.env)
 ```env
 OPENAI_API_KEY=your_openai_api_key_here
+REDIS_URL=redis://localhost:6379/0
 ```
 
-### 3. Run with Docker Compose
-
-```bash
-docker-compose up --build
+#### Frontend (frontend/.env.local)
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
+ENABLE_DEBUG_ENDPOINTS=false
+NEXT_PUBLIC_FEATURE_SUMMARY_CITATIONS=true
 ```
 
-This will start both the frontend and backend services:
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8000
+## 📝 API Documentation
 
-### 4. Access the Application
+The backend provides comprehensive API documentation available at:
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
 
-Open your browser and navigate to http://localhost:3000
+### Key Endpoints
 
-## 🧪 Manual Setup (Development)
-
-### Backend Setup
-
-```bash
-cd backend
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Set environment variable
-export OPENAI_API_KEY=your_openai_api_key_here
-
-# Run the server
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### Frontend Setup
-
-```bash
-cd frontend
-
-# Install dependencies
-npm install
-
-# Run development server
-npm run dev
-```
-
-### YouTube Proxy Troubleshooting
-
-- Ensure `NEXT_PUBLIC_API_URL` points to FastAPI:
-  - Local: `http://localhost:8000`
-  - Docker Compose: `http://backend:8000`
-- Test backend ping:
-  - `GET http://localhost:8000/youtube/flashcards/ping` → `{ "ok": true }`
-- Test proxy route:
-  - `POST http://localhost:3000/api/youtube/flashcards` with `{ "url": "https://youtu.be/VIDEO" }`
-- If proxy fails, it will return a descriptive JSON error instead of a generic network error.
-
-## 📁 Project Structure
-
-```
-pdf-flashcards-mvp/
-├── backend/
-│   ├── main.py                 # FastAPI application
-│   ├── models.py               # Data models
-│   ├── pdf_processor.py        # PDF text extraction
-│   ├── flashcard_generator.py  # OpenAI integration
-│   ├── requirements.txt        # Python dependencies
-│   ├── Dockerfile             # Backend container
-│   └── env.example            # Environment template
-├── frontend/
-│   ├── app/
-│   │   ├── page.tsx           # Landing page
-│   │   ├── flashcards/[id]/
-│   │   │   └── page.tsx       # Flashcard viewer
-│   │   ├── layout.tsx         # Root layout
-│   │   └── globals.css        # Global styles
-│   ├── components/
-│   │   ├── PDFUpload.tsx      # Upload component
-│   │   ├── FlashcardViewer.tsx # Card viewer
-│   │   └── ProcessingStatus.tsx # Loading states
-│   ├── package.json           # Node dependencies
-│   └── Dockerfile             # Frontend container
-├── docker-compose.yml         # Container orchestration
-├── env.example               # Environment template
-└── README.md                 # This file
-```
-
-## 🔧 API Endpoints
-
-### Backend API (Port 8000)
-
-- `POST /upload-pdf` - Upload a PDF file
-- `POST /generate-flashcards/{pdf_id}` - Start flashcard generation
-- `GET /status/{pdf_id}` - Check processing status
-- `GET /flashcards/{pdf_id}` - Get generated flashcards
-
-### Example Usage
-
-```bash
-# Upload a PDF
-curl -X POST "http://localhost:8000/upload-pdf" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@document.pdf"
-
-# Check status
-curl "http://localhost:8000/status/your-pdf-id"
-
-# Get flashcards
-curl "http://localhost:8000/flashcards/your-pdf-id"
-```
-
-## 🎯 How It Works
-
-1. **Upload**: User drags and drops a PDF file (max 10MB)
-2. **Validation**: System validates file type and size
-3. **Processing**: Background task extracts text and sends to OpenAI
-4. **Generation**: AI creates 10 intelligent flashcards
-5. **Study**: User reviews cards with flip animations
+- `POST /upload-pdf` - Upload PDF for processing
+- `GET /flashcards/{pdf_id}` - Retrieve generated flashcards
+- `POST /youtube/flashcards` - Generate flashcards from YouTube video
+- `GET /youtube/tracks` - Get available transcript tracks
+- `GET /decks` - List all study decks
+- `POST /decks` - Create new deck
 
 ## 🧪 Testing
 
-### Test Checklist
+### Backend Tests
+```bash
+cd backend
+python -m pytest
+```
 
-- [ ] Upload a valid PDF file
-- [ ] Verify file size validation (10MB limit)
-- [ ] Check file type validation (PDF only)
-- [ ] Test flashcard generation process
-- [ ] Verify flip animations work
-- [ ] Test navigation between cards
-- [ ] Check mobile responsiveness
-- [ ] Test error handling scenarios
-
-### Manual Testing
-
-1. Upload a small PDF (< 1MB) with clear text content
-2. Wait for processing to complete
-3. Verify 10 flashcards are generated
-4. Test card flipping and navigation
-5. Try uploading invalid files to test error handling
-
-## 🚨 Error Handling
-
-The application handles various error scenarios:
-
-- **Invalid file types**: Only PDF files are accepted
-- **File size limits**: Maximum 10MB file size
-- **PDF parsing failures**: Encrypted or corrupted PDFs
-- **OpenAI API errors**: Rate limits, quota exceeded, network issues
-- **Processing timeouts**: Long-running operations
-
-## 🔒 Security Considerations
-
-- No user authentication (MVP scope)
-- File uploads limited to PDF only
-- File size restrictions in place
-- No persistent user data storage
-- Environment variables for API keys
-
-## 📈 Performance
-
-- Background processing for large PDFs
-- Real-time status updates
-- Optimized for fast response times
-- Efficient database queries
-- Minimal resource usage
+### Frontend Tests
+```bash
+cd frontend
+npm test
+```
 
 ## 🚀 Deployment
 
 ### Production Deployment
 
-1. **Set up environment variables**:
+1. **Update environment variables for production**
    ```bash
-   export OPENAI_API_KEY=your_production_api_key
-   ```
-
-2. **Deploy with Docker Compose**:
-   ```bash
+   # Update docker-compose.prod.yml with production settings
    docker-compose -f docker-compose.prod.yml up -d
    ```
 
-3. **Configure reverse proxy** (Nginx recommended):
+2. **Configure reverse proxy (nginx)**
    ```nginx
    server {
        listen 80;
@@ -249,69 +203,34 @@ The application handles various error scenarios:
            proxy_pass http://localhost:3000;
        }
        
-       location /api/ {
-           proxy_pass http://localhost:8000/;
+       location /api {
+           proxy_pass http://localhost:8000;
        }
    }
    ```
 
-### Cloud Deployment
-
-The application can be deployed on:
-- **AWS**: ECS, EC2, or Lambda
-- **Google Cloud**: Cloud Run or Compute Engine
-- **Azure**: Container Instances or App Service
-- **DigitalOcean**: Droplets or App Platform
-- **Heroku**: Container deployment
-
 ## 🤝 Contributing
 
-This is an MVP implementation. For production use, consider:
-
-- Adding user authentication
-- Implementing file storage (S3, etc.)
-- Adding payment processing
-- Building spaced repetition algorithms
-- Adding more AI models
-- Implementing analytics
-- Adding export features
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## 📄 License
 
-This project is for educational and MVP purposes. Please ensure you comply with OpenAI's usage policies when using their API.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🆘 Troubleshooting
+## 🙏 Acknowledgments
 
-### Common Issues
-
-1. **OpenAI API errors**: Check your API key and billing
-2. **Docker build failures**: Ensure Docker is running
-3. **Port conflicts**: Change ports in docker-compose.yml
-4. **File upload issues**: Check file size and type
-5. **Processing failures**: Verify PDF has extractable text
-
-### Debug Mode
-
-Run backend in debug mode:
-```bash
-cd backend
-uvicorn main:app --reload --log-level debug
-```
-
-Check logs:
-```bash
-docker-compose logs -f backend
-docker-compose logs -f frontend
-```
+- OpenAI for providing the AI capabilities
+- The open-source community for the amazing tools and libraries
+- Contributors and users who help improve this platform
 
 ## 📞 Support
 
-For issues or questions:
-1. Check the troubleshooting section
-2. Review error logs
-3. Verify environment setup
-4. Test with a simple PDF file
+For support, email support@secondbrain.app or create an issue in the GitHub repository.
 
 ---
 
-**Note**: This is an MVP implementation focused on core functionality. Production deployments should include additional security, monitoring, and scalability considerations.
+**Made with ❤️ for learners everywhere**
