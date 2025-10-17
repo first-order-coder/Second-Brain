@@ -4,7 +4,7 @@ YouTube flashcards router - handles YouTube URL to flashcards conversion.
 import logging
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from services.youtube_transcript import get_transcript, list_transcripts
 from services.cardify import (
@@ -16,6 +16,8 @@ from services.cardify import (
     truncate_answer
 )
 from services.llm_integration import generate_flashcards_from_excerpts
+from services.decks import get_or_create_deck_for_source, attach_cards_to_deck
+from utils import clamp
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +35,23 @@ class YouTubeTracksResponse(BaseModel):
 class YouTubeFlashcardsRequest(BaseModel):
     url: str = Field(..., description="YouTube URL")
     n_cards: int = Field(default=10, ge=1, le=20, description="Number of cards to generate")
+    # Add-ONLY: Optional requested count for enhanced control
+    requested_count: Optional[int] = Field(default=None, ge=1, le=50, description="Requested number of cards (overrides n_cards if provided)")
     lang_hint: List[str] = Field(default=["en", "en-US", "en-GB"], description="Language preferences")
     allow_auto_generated: bool = Field(default=True, description="Allow auto-generated captions")
     use_cookies: bool = Field(default=False, description="Use cookies for authentication")
     enable_fallback: bool = Field(default=False, description="Enable yt-dlp fallback")
+
+    @field_validator("requested_count", mode="before")
+    @classmethod
+    def coerce_count(cls, v):
+        """Coerce requested_count to integer or None"""
+        if v is None or v == '' or v == "":
+            return None
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
 
 class YouTubeCard(BaseModel):
     front: str
@@ -55,6 +70,8 @@ class YouTubeFlashcardsResponse(BaseModel):
     lang: str
     cards: List[YouTubeCard]
     warnings: List[str]
+    # Added for deck parity (additive, backwards-compatible)
+    deck_id: Optional[str] = None
 
 @router.get("/flashcards/ping")
 async def youtube_flashcards_ping():
@@ -193,8 +210,24 @@ async def generate_youtube_flashcards(request: YouTubeFlashcardsRequest):
         if not windows:
             raise HTTPException(status_code=422, detail="No suitable content windows found")
         
+        # Determine target count (requested_count overrides n_cards if provided)
+        # Add defensive integer coercion (belt & suspenders)
+        target_count = None
+        if request.requested_count is not None:
+            try:
+                target_count = clamp(
+                    int(request.requested_count), 
+                    default=request.n_cards, 
+                    min_val=1, 
+                    max_val=50
+                )
+            except (TypeError, ValueError):
+                target_count = request.n_cards
+        else:
+            target_count = request.n_cards
+        
         # Select key points for flashcard generation
-        key_windows = select_key_points(windows, request.n_cards)
+        key_windows = select_key_points(windows, target_count)
         
         if not key_windows:
             raise HTTPException(status_code=422, detail="No key points selected for flashcard generation")
@@ -204,7 +237,7 @@ async def generate_youtube_flashcards(request: YouTubeFlashcardsRequest):
         
         # Generate flashcards using LLM
         try:
-            raw_cards = generate_flashcards_from_excerpts(excerpts_json, request.n_cards)
+            raw_cards = generate_flashcards_from_excerpts(excerpts_json, target_count, target_count)
         except Exception as e:
             logger.error(f"LLM flashcard generation failed for {video_id}: {e}")
             raise HTTPException(status_code=500, detail=f"Flashcard generation failed: {str(e)}")
@@ -234,8 +267,41 @@ async def generate_youtube_flashcards(request: YouTubeFlashcardsRequest):
         deduplicated_cards = deduplicate_cards([card.dict() for card in processed_cards])
         final_cards = [YouTubeCard(**card) for card in deduplicated_cards]
         
-        # Limit to requested number
-        final_cards = final_cards[:request.n_cards]
+        # Limit to target count (enforce exact count)
+        final_cards = final_cards[:int(target_count)]
+        
+        # Automatically save cards to deck for parity with PDF flow
+        deck_id = None
+        try:
+            # Build a friendly label similar to existing /youtube/save endpoint
+            label_parts = ["youtube"]
+            if video_id:
+                label_parts.append(video_id)
+            if request.url:
+                # keep it short
+                label_parts.append(request.url[:60])
+            source_label = " | ".join(label_parts)
+            
+            # Create or get deck for this source
+            deck_id = get_or_create_deck_for_source("pdf_flashcards.db", source_label)
+            
+            # Convert cards to the format expected by attach_cards_to_deck
+            cards_data = []
+            for card in final_cards:
+                cards_data.append({
+                    'front': card.front,
+                    'back': card.back
+                })
+            
+            # Attach cards to the deck
+            attach_cards_to_deck("pdf_flashcards.db", deck_id, cards_data)
+            
+            logger.info(f"Auto-saved {len(final_cards)} YouTube cards to deck {deck_id}")
+            
+        except Exception as persist_err:
+            # Log but do not break the generation response; frontend can still use manual save
+            logger.error(f"Failed to auto-save YouTube cards to deck: {persist_err}")
+            deck_id = None
         
         # Log success
         logger.info(
@@ -257,7 +323,8 @@ async def generate_youtube_flashcards(request: YouTubeFlashcardsRequest):
             url=request.url,
             lang=chosen_lang,
             cards=final_cards,
-            warnings=warnings
+            warnings=warnings,
+            deck_id=deck_id  # Include deck_id for auto-navigation
         )
         
     except HTTPException:

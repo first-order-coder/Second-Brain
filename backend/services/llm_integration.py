@@ -38,15 +38,25 @@ def call_llm_json(system_prompt: str, user_prompt: str) -> Dict[str, Any]:
         logger.error(f"LLM API call failed: {e}")
         raise Exception(f"LLM API call failed: {str(e)}")
 
-def generate_flashcards_from_excerpts(excerpts_json: str, n_cards: int = 10) -> List[Dict[str, Any]]:
+def generate_flashcards_from_excerpts(excerpts_json: str, n_cards: int = 10, target_count: int = None) -> List[Dict[str, Any]]:
     """
     Generate flashcards from transcript excerpts using LLM.
+    
+    Args:
+        excerpts_json: JSON string containing transcript excerpts
+        n_cards: Legacy parameter for backward compatibility
+        target_count: Target number of cards to generate (overrides n_cards if provided)
     """
+    # Use target_count if provided, otherwise fall back to n_cards
+    actual_target = target_count if target_count is not None else n_cards
+    
     system_prompt = """You write concise, atomic study flashcards. Each card tests one fact, definition, relation, or small procedure. Answers are short, factual, and testable. Use simple language. Avoid fluff and opinions."""
 
-    user_prompt = f"""Create {n_cards} flashcards from the transcript excerpts below.
+    user_prompt = f"""Create exactly {actual_target} high-quality flashcards from the transcript excerpts below.
 
 Rules:
+- You MUST produce at most {actual_target} flashcards.
+- Prefer quality and coverage. If content is insufficient, produce fewer.
 - Prefer "why/how" and "compare/contrast" when justified by the text.
 - Keep each answer ≤ 45 words.
 - Include a short evidence quote ≤ 18 words copied from the excerpt.
@@ -95,6 +105,10 @@ Transcript excerpts (JSON):
                 cleaned_card['end_s'] = None
             
             cleaned_cards.append(cleaned_card)
+        
+        # Enforce exact count: truncate if more than target, return whatever we have if fewer
+        if len(cleaned_cards) > actual_target:
+            cleaned_cards = cleaned_cards[:int(actual_target)]
         
         return cleaned_cards
         

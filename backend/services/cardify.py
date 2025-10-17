@@ -151,13 +151,13 @@ def select_key_points(windows: List[Dict], k: int) -> List[Dict]:
     
     # Sort by score (descending) and take top k*2
     scored_windows.sort(key=lambda x: x[0], reverse=True)
-    selected_windows = [window for score, window in scored_windows[:k*2]]
+    selected_windows = [window for score, window in scored_windows[:int(k)*2]]
     
     # Ensure we have some diversity - don't take all from the beginning
-    if len(selected_windows) > k:
+    if len(selected_windows) > int(k):
         # Take some from different parts of the video
-        step = max(1, len(selected_windows) // k)
-        selected_windows = selected_windows[::step][:k]
+        step = max(1, len(selected_windows) // int(k))
+        selected_windows = selected_windows[::step][:int(k)]
     
     return selected_windows
 

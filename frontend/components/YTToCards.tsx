@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card as UICard } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
+import { YouTubeFlashcardsResponse } from "@/lib/types";
 
 type CardItem = {
   front: string; 
@@ -21,6 +23,7 @@ type CardItem = {
 };
 
 export default function YTToCards() {
+  const router = useRouter();
   const [url, setUrl] = useState("");
   const [nCards, setNCards] = useState(10);
   const [allowAuto, setAllowAuto] = useState(true);
@@ -29,10 +32,8 @@ export default function YTToCards() {
   const [langHint, setLangHint] = useState<string[]>(["en","en-US","en-GB"]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [resp, setResp] = useState<{
-    video_id: string; url: string; lang: string; title?: string|null;
-    cards: CardItem[]; warnings?: string[];
-  } | null>(null);
+  const [resp, setResp] = useState<YouTubeFlashcardsResponse | null>(null);
+  const [lastDeckId, setLastDeckId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [tracks, setTracks] = useState<{
     video_id: string;
@@ -81,17 +82,26 @@ export default function YTToCards() {
     setError(null); 
     setResp(null);
     try {
+      // Build payload with requested_count (additive field)
+      const payload: any = {
+        url,
+        n_cards: nCards,
+        langHint,
+        allow_auto_generated: allowAuto,
+        use_cookies: useCookies,
+        enable_fallback: enableFallback
+      };
+      
+      // Add requested_count only if user has set a specific value
+      // Ensure it's always an integer
+      if (Number.isInteger(nCards) && nCards > 0) {
+        payload.requested_count = Number.parseInt(nCards.toString(), 10);
+      }
+      
       const r = await fetch("/api/youtube/flashcards", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url,
-          n_cards: nCards,
-          langHint,
-          allow_auto_generated: allowAuto,
-          use_cookies: useCookies,
-          enable_fallback: enableFallback
-        })
+        body: JSON.stringify(payload)
       });
       const data = await r.json();
       if (!r.ok) {
@@ -102,6 +112,11 @@ export default function YTToCards() {
         }
       } else {
         setResp(data);
+        // Auto-navigate to deck if deck_id is present (deck parity with PDF flow)
+        if (data?.deck_id) {
+          setLastDeckId(data.deck_id);
+          router.push(`/flashcards/${data.deck_id}`);
+        }
       }
     } catch (err: any) {
       setError("Network error or API unavailable.");
@@ -170,7 +185,15 @@ export default function YTToCards() {
             <Label htmlFor="cards"># of cards</Label>
             <span className="text-sm text-muted-foreground">{nCards}</span>
           </div>
-          <Slider id="cards" min={5} max={20} step={1} value={[nCards]} onValueChange={(v)=>setNCards(v[0])}/>
+          <Slider 
+            id="cards" 
+            min={5} 
+            max={20} 
+            step={1} 
+            value={[nCards]} 
+            onValueChange={(v)=>setNCards(v[0])}
+            disabled={loading}
+          />
         </UICard>
 
         <UICard className="p-3 space-y-3">
@@ -214,6 +237,19 @@ export default function YTToCards() {
           </Button>
         </div>
         {error && <div className="text-sm text-red-600 p-2 bg-red-50 rounded">{error}</div>}
+        
+        {/* Persistent View Flashcards button for deck parity */}
+        {lastDeckId && (
+          <div className="pt-2">
+            <Button 
+              variant="default" 
+              onClick={() => router.push(`/flashcards/${lastDeckId}`)}
+              className="w-full"
+            >
+              View Flashcards
+            </Button>
+          </div>
+        )}
       </div>
 
       {tracks && (

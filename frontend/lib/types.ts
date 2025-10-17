@@ -19,4 +19,26 @@ export type Summary = {
   sentences: SummarySentence[];
 };
 
+// YouTube-related types for deck parity
+export type YouTubeCard = {
+  front: string;
+  back: string;
+  cloze?: string | null;
+  start_s?: number | null;
+  end_s?: number | null;
+  evidence?: string | null;
+  difficulty?: "easy" | "medium" | "hard" | null;
+  tags?: string[];
+};
+
+export type YouTubeFlashcardsResponse = {
+  video_id: string;
+  title?: string | null;
+  url: string;
+  lang: string;
+  cards: YouTubeCard[];
+  warnings: string[];
+  deck_id?: string | null; // Added for deck parity
+};
+
  
