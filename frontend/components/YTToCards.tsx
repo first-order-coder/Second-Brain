@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Slider } from "@/components/ui/slider";
+// Slider removed - fixed 10 cards for YouTube
 import { Separator } from "@/components/ui/separator";
 import { YouTubeFlashcardsResponse } from "@/lib/types";
 
@@ -25,7 +25,7 @@ type CardItem = {
 export default function YTToCards() {
   const router = useRouter();
   const [url, setUrl] = useState("");
-  const [nCards, setNCards] = useState(10);
+  // Fixed 10 cards for YouTube - no count selector needed
   const [allowAuto, setAllowAuto] = useState(true);
   const [useCookies, setUseCookies] = useState(false);
   const [enableFallback, setEnableFallback] = useState(false);
@@ -82,21 +82,17 @@ export default function YTToCards() {
     setError(null); 
     setResp(null);
     try {
-      // Build payload with requested_count (additive field)
+      // Build payload - fixed 10 cards on server side
       const payload: any = {
         url,
-        n_cards: nCards,
+        n_cards: 10, // Fixed value, server will enforce 10
         langHint,
         allow_auto_generated: allowAuto,
         use_cookies: useCookies,
         enable_fallback: enableFallback
       };
       
-      // Add requested_count only if user has set a specific value
-      // Ensure it's always an integer
-      if (Number.isInteger(nCards) && nCards > 0) {
-        payload.requested_count = Number.parseInt(nCards.toString(), 10);
-      }
+      // No requested_count sent - server will force 10
       
       const r = await fetch("/api/youtube/flashcards", {
         method: "POST",
@@ -175,27 +171,23 @@ export default function YTToCards() {
           onPaste={onPasteLink}
         />
         <p className="text-xs text-muted-foreground">
-          Paste a link, then click "Generate Flashcards".
+          Paste a link, then click "Generate Flashcards". This will create <strong>10</strong> flashcards.
         </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Info card about flashcard count */}
         <UICard className="p-3 space-y-3">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="cards"># of cards</Label>
-            <span className="text-sm text-muted-foreground">{nCards}</span>
+          <div className="text-sm font-medium mb-1">Flashcard count</div>
+          <div className="text-sm text-muted-foreground">
+            Always generates <span className="font-semibold">10</span> cards for YouTube.
           </div>
-          <Slider 
-            id="cards" 
-            min={5} 
-            max={20} 
-            step={1} 
-            value={[nCards]} 
-            onValueChange={(v)=>setNCards(v[0])}
-            disabled={loading}
-          />
+          <div className="text-xs text-muted-foreground mt-2">
+            Count control removed for MVP reliability.
+          </div>
         </UICard>
 
+        {/* Options card */}
         <UICard className="p-3 space-y-3">
           <div className="flex items-center justify-between">
             <Label htmlFor="auto">Allow auto-generated captions</Label>
@@ -236,6 +228,10 @@ export default function YTToCards() {
             {checkingTracks ? "Checking…" : "Check Captions"}
           </Button>
         </div>
+        <p className="text-xs text-muted-foreground">
+          YouTube generation creates <span className="font-medium">10</span> flashcards by default.
+          (Count control removed for MVP reliability.)
+        </p>
         {error && <div className="text-sm text-red-600 p-2 bg-red-50 rounded">{error}</div>}
         
         {/* Persistent View Flashcards button for deck parity */}

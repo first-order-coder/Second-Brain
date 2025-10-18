@@ -210,21 +210,8 @@ async def generate_youtube_flashcards(request: YouTubeFlashcardsRequest):
         if not windows:
             raise HTTPException(status_code=422, detail="No suitable content windows found")
         
-        # Determine target count (requested_count overrides n_cards if provided)
-        # Add defensive integer coercion (belt & suspenders)
-        target_count = None
-        if request.requested_count is not None:
-            try:
-                target_count = clamp(
-                    int(request.requested_count), 
-                    default=request.n_cards, 
-                    min_val=1, 
-                    max_val=50
-                )
-            except (TypeError, ValueError):
-                target_count = request.n_cards
-        else:
-            target_count = request.n_cards
+        # Force exactly 10 cards for YouTube (ignore any client-provided count)
+        target_count = 10
         
         # Select key points for flashcard generation
         key_windows = select_key_points(windows, target_count)
@@ -267,7 +254,7 @@ async def generate_youtube_flashcards(request: YouTubeFlashcardsRequest):
         deduplicated_cards = deduplicate_cards([card.dict() for card in processed_cards])
         final_cards = [YouTubeCard(**card) for card in deduplicated_cards]
         
-        # Limit to target count (enforce exact count)
+        # Limit to target count (enforce exactly 10 for YouTube)
         final_cards = final_cards[:int(target_count)]
         
         # Automatically save cards to deck for parity with PDF flow
