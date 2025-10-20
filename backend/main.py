@@ -17,6 +17,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 import asyncio
 from dotenv import load_dotenv
+from repo.dual_repo import (
+    upsert_pdf, upsert_flashcard, get_pdf_status, get_flashcards, 
+    delete_flashcards, execute_dual_write_sql
+)
 
 # Load environment variables
 load_dotenv()
@@ -174,26 +178,14 @@ async def save_youtube_deck(payload: SaveYouTubeDeckRequest):
             label_parts.append(payload.title[:60])
         source_label = " | ".join(label_parts)
 
-        conn = sqlite3.connect("pdf_flashcards.db")
-        cursor = conn.cursor()
+        # Insert source row as completed using dual-write
+        upsert_pdf(pdf_id, source_label, "completed")
 
-        # Insert source row as completed
-        cursor.execute(
-            "INSERT INTO pdfs (id, filename, status) VALUES (?, ?, ?)",
-            (pdf_id, source_label, "completed"),
-        )
-
-        # Insert cards
+        # Insert cards using dual-write
         for idx, c in enumerate(payload.cards, start=1):
             question = c.front.strip() if c.front else ""
             answer = c.back.strip() if c.back else ""
-            cursor.execute(
-                "INSERT INTO flashcards (pdf_id, question, answer, card_number) VALUES (?, ?, ?, ?)",
-                (pdf_id, question, answer, idx),
-            )
-
-        conn.commit()
-        conn.close()
+            upsert_flashcard(pdf_id, question, answer, idx)
 
         return {"pdf_id": pdf_id, "count": len(payload.cards)}
     except Exception as e:
@@ -240,15 +232,8 @@ async def upload_pdf(file: UploadFile = File(...)):
         
         print(f"File saved successfully: {file_path.exists()}")
         
-        # Save to database
-        conn = sqlite3.connect("pdf_flashcards.db")
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO pdfs (id, filename, status) VALUES (?, ?, ?)",
-            (pdf_id, file.filename, "uploaded")
-        )
-        conn.commit()
-        conn.close()
+        # Save to database using dual-write
+        upsert_pdf(pdf_id, file.filename, "uploaded")
         
         print(f"Database record created for PDF ID: {pdf_id}")
         
@@ -274,12 +259,8 @@ async def generate_flashcards_endpoint(pdf_id: str, background_tasks: Background
     if not pdf_record:
         raise HTTPException(status_code=404, detail="PDF not found")
     
-    # Update status to processing
-    conn = sqlite3.connect("pdf_flashcards.db")
-    cursor = conn.cursor()
-    cursor.execute("UPDATE pdfs SET status = ? WHERE id = ?", ("processing", pdf_id))
-    conn.commit()
-    conn.close()
+    # Update status to processing using dual-write
+    execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("processing", pdf_id))
     
     # Start background task
     background_tasks.add_task(process_pdf_and_generate_flashcards, pdf_id)
@@ -289,12 +270,8 @@ async def generate_flashcards_endpoint(pdf_id: str, background_tasks: Background
 async def process_pdf_and_generate_flashcards(pdf_id: str):
     """Background task to process PDF and generate flashcards"""
     try:
-        # Update status to processing
-        conn = sqlite3.connect("pdf_flashcards.db")
-        cursor = conn.cursor()
-        cursor.execute("UPDATE pdfs SET status = ? WHERE id = ?", ("processing", pdf_id))
-        conn.commit()
-        conn.close()
+        # Update status to processing using dual-write
+        execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("processing", pdf_id))
         
         # Extract text from PDF
         file_path = UPLOAD_DIR / f"{pdf_id}.pdf"
@@ -309,73 +286,47 @@ async def process_pdf_and_generate_flashcards(pdf_id: str):
         # Generate flashcards using OpenAI
         flashcards_data = generate_flashcards(text_content)
         
-        # Save flashcards to database
-        conn = sqlite3.connect("pdf_flashcards.db")
-        cursor = conn.cursor()
-        
+        # Save flashcards to database using dual-write
         # Clear any existing flashcards for this PDF
-        cursor.execute("DELETE FROM flashcards WHERE pdf_id = ?", (pdf_id,))
+        delete_flashcards(pdf_id)
         
         # Insert new flashcards
         for i, flashcard in enumerate(flashcards_data):
-            cursor.execute(
-                "INSERT INTO flashcards (pdf_id, question, answer, card_number) VALUES (?, ?, ?, ?)",
-                (pdf_id, flashcard["question"], flashcard["answer"], i + 1)
-            )
+            upsert_flashcard(pdf_id, flashcard["question"], flashcard["answer"], i + 1)
         
         # Update PDF status to completed
-        cursor.execute("UPDATE pdfs SET status = ? WHERE id = ?", ("completed", pdf_id))
-        
-        conn.commit()
-        conn.close()
+        execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("completed", pdf_id))
         print(f"✅ Successfully processed PDF {pdf_id} and generated flashcards")
         
     except HTTPException as e:
-        # Handle specific HTTP errors from OpenAI
-        conn = sqlite3.connect("pdf_flashcards.db")
-        cursor = conn.cursor()
-        
+        # Handle specific HTTP errors from OpenAI using dual-write
         # Set status based on error type
         if e.status_code == 429:  # Quota exceeded
-            cursor.execute("UPDATE pdfs SET status = ? WHERE id = ?", ("quota_exceeded", pdf_id))
+            execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("quota_exceeded", pdf_id))
             print(f"⚠️ Quota exceeded for PDF {pdf_id}: {e.detail}")
         elif e.status_code == 401:  # Authentication error
-            cursor.execute("UPDATE pdfs SET status = ? WHERE id = ?", ("auth_error", pdf_id))
+            execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("auth_error", pdf_id))
             print(f"❌ Authentication error for PDF {pdf_id}: {e.detail}")
         elif e.status_code == 504:  # Timeout
-            cursor.execute("UPDATE pdfs SET status = ? WHERE id = ?", ("timeout", pdf_id))
+            execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("timeout", pdf_id))
             print(f"⏱️ Timeout error for PDF {pdf_id}: {e.detail}")
         else:  # Other HTTP errors
-            cursor.execute("UPDATE pdfs SET status = ? WHERE id = ?", ("service_error", pdf_id))
+            execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("service_error", pdf_id))
             print(f"🔧 Service error for PDF {pdf_id}: {e.detail}")
-            
-        conn.commit()
-        conn.close()
         
     except Exception as e:
-        # Handle other errors
-        conn = sqlite3.connect("pdf_flashcards.db")
-        cursor = conn.cursor()
-        cursor.execute("UPDATE pdfs SET status = ? WHERE id = ?", ("error", pdf_id))
-        conn.commit()
-        conn.close()
-        
+        # Handle other errors using dual-write
+        execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("error", pdf_id))
         print(f"❌ Error processing PDF {pdf_id}: {str(e)}")
 
 @app.get("/status/{pdf_id}")
 async def get_status(pdf_id: str):
     """Get the processing status of a PDF"""
     
-    conn = sqlite3.connect("pdf_flashcards.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT status FROM pdfs WHERE id = ?", (pdf_id,))
-    result = cursor.fetchone()
-    conn.close()
+    status = get_pdf_status(pdf_id)
     
-    if not result:
+    if not status:
         raise HTTPException(status_code=404, detail="PDF not found")
-    
-    status = result[0]
     
     # Provide user-friendly error messages based on status
     error_messages = {
@@ -394,23 +345,20 @@ async def get_status(pdf_id: str):
     return response
 
 @app.get("/flashcards/{pdf_id}")
-async def get_flashcards(pdf_id: str):
+async def get_flashcards_endpoint(pdf_id: str):
     """Get all flashcards for a PDF"""
     
-    conn = sqlite3.connect("pdf_flashcards.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM flashcards WHERE pdf_id = ? ORDER BY card_number", (pdf_id,))
-    flashcards = cursor.fetchall()
-    
-    cursor.execute("SELECT status FROM pdfs WHERE id = ?", (pdf_id,))
-    pdf_status = cursor.fetchone()
-    conn.close()
+    # Get PDF status
+    pdf_status = get_pdf_status(pdf_id)
     
     if not pdf_status:
         raise HTTPException(status_code=404, detail="PDF not found")
     
-    if pdf_status[0] != "completed":
-        return {"pdf_id": pdf_id, "status": pdf_status[0], "flashcards": []}
+    if pdf_status != "completed":
+        return {"pdf_id": pdf_id, "status": pdf_status, "flashcards": []}
+    
+    # Get flashcards using dual-repo read
+    flashcards = get_flashcards(pdf_id)
     
     flashcards_list = []
     for flashcard in flashcards:
@@ -421,7 +369,7 @@ async def get_flashcards(pdf_id: str):
             "card_number": flashcard[4]
         })
     
-    return {"pdf_id": pdf_id, "status": pdf_status[0], "flashcards": flashcards_list}
+    return {"pdf_id": pdf_id, "status": pdf_status, "flashcards": flashcards_list}
 
 @app.get("/")
 async def root():
@@ -560,6 +508,64 @@ async def refresh_summary(source_id: str):
 async def refresh_summary_options(source_id: str):
     """Handle CORS preflight for refresh endpoint"""
     return JSONResponse({"message": "OK"})
+
+@app.get("/healthz")
+def healthz():
+    """Basic health check - API up + SQLite rw"""
+    try:
+        # Check SQLite connectivity
+        conn = sqlite3.connect("pdf_flashcards.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        conn.close()
+        return {"ok": True, "database": "sqlite", "status": "healthy"}
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+@app.get("/readyz")
+def readyz():
+    """Readiness check - Celery heartbeat + Redis ping + Supabase ping if enabled"""
+    from db.supabase_engine import SUPABASE_ENABLED, SessionSupabase
+    
+    status = {"ok": True}
+    
+    # Check SQLite
+    try:
+        conn = sqlite3.connect("pdf_flashcards.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        conn.close()
+        status["sqlite"] = "healthy"
+    except Exception as e:
+        status["ok"] = False
+        status["sqlite"] = f"error: {str(e)}"
+    
+    # Check Supabase if enabled
+    if SUPABASE_ENABLED:
+        try:
+            with SessionSupabase() as s:
+                s.execute("SELECT 1")
+            status["supabase"] = "healthy"
+        except Exception as e:
+            status["ok"] = False
+            status["supabase"] = f"error: {str(e)}"
+    else:
+        status["supabase"] = "disabled"
+    
+    # Check Redis if using Celery
+    if USE_CELERY:
+        try:
+            import redis
+            r = redis.Redis(host='localhost', port=6379, db=0)
+            r.ping()
+            status["redis"] = "healthy"
+        except Exception as e:
+            status["ok"] = False
+            status["redis"] = f"error: {str(e)}"
+    else:
+        status["redis"] = "disabled"
+    
+    return status
 
 @app.get("/health/summary")
 async def health_check():
