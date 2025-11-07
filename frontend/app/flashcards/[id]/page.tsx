@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import FlashcardViewer from '@/components/FlashcardViewer'
+import SaveOnLoad from './SaveOnLoad'
 import ProcessingStatus from '@/components/ProcessingStatus'
 
 interface Flashcard {

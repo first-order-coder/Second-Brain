@@ -126,3 +126,19 @@ execute procedure public.handle_new_user();
 
 
 
+-- User decks linkage for Supabase-saved decks
+create table if not exists public.user_decks (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  deck_id uuid not null,
+  role text not null default 'owner',
+  created_at timestamptz not null default now(),
+  primary key (user_id, deck_id)
+);
+
+alter table public.user_decks enable row level security;
+
+drop policy if exists user_decks_is_owner on public.user_decks;
+create policy user_decks_is_owner
+  on public.user_decks for all
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
