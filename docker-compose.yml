@@ -8,6 +8,16 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - REDIS_URL=redis://redis:6379/0
+      # Feature flags
+      - FEATURE_SUMMARY_CITATIONS=${FEATURE_SUMMARY_CITATIONS:-true}
+      - FEATURE_INLINE_EDITOR=${FEATURE_INLINE_EDITOR:-true}
+      - FEATURE_YOUTUBE_INGEST=${FEATURE_YOUTUBE_INGEST:-true}
+      - ENABLE_DEBUG_ENDPOINTS=${ENABLE_DEBUG_ENDPOINTS:-false}
+      # Summary configuration
+      - SUMMARY_MODEL=${SUMMARY_MODEL:-gpt-4o-mini}
+      - SUMMARY_EVIDENCE_TOPK=${SUMMARY_EVIDENCE_TOPK:-6}
+      - SUMMARY_SUPPORT_THRESHOLD=${SUMMARY_SUPPORT_THRESHOLD:-0.74}
+      - USE_CELERY=${USE_CELERY:-false}
       # Supabase configuration (optional)
       - SUPABASE_URL=${SUPABASE_URL:-}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
@@ -16,6 +26,19 @@ services:
       - DB_WRITE_SUPABASE=${DB_WRITE_SUPABASE:-true}
       - DB_WRITE_SQLITE=${DB_WRITE_SQLITE:-true}
       - ENABLE_PGVECTOR=${ENABLE_PGVECTOR:-true}
+      # YouTube configuration
+      - YT_TRANSCRIPT_LANGS=${YT_TRANSCRIPT_LANGS:-en,en-US}
+      - YT_PREFER_HUMAN=${YT_PREFER_HUMAN:-true}
+      - YT_FALLBACK_ANY_LANG=${YT_FALLBACK_ANY_LANG:-true}
+      - YT_HTTP_TIMEOUT_SEC=${YT_HTTP_TIMEOUT_SEC:-15}
+      - YT_RETRY_ATTEMPTS=${YT_RETRY_ATTEMPTS:-3}
+      - YT_RETRY_DELAY_MS=${YT_RETRY_DELAY_MS:-800}
+      - YT_COOKIES_FILE=${YT_COOKIES_FILE:-}
+      - YT_COOKIES_PATH=${YT_COOKIES_PATH:-}
+      - YT_USE_YTDLP_FALLBACK=${YT_USE_YTDLP_FALLBACK:-true}
+      - YT_YTDLP_PATH=${YT_YTDLP_PATH:-yt-dlp}
+      - YT_FFMPEG_PATH=${YT_FFMPEG_PATH:-ffmpeg}
+      - YT_TMP_DIR=${YT_TMP_DIR:-.cache/yt}
     volumes:
       - ./backend/uploads:/app/uploads
       - ./backend/pdf_flashcards.db:/app/pdf_flashcards.db
@@ -28,10 +51,19 @@ services:
       context: ./frontend
       args:
         NEXT_PUBLIC_API_URL: http://backend:8000
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-https://xhqakujyyaczjgljkgwk.supabase.co}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhocWFrdWp5eWFjempnbGprZ3drIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg5MjA5MjQsImV4cCI6MjA3NDQ5NjkyNH0.681WQKnS-oaqzCUFYkGc5xnIfzeZpeqZ0bviK5M5bjw}
     ports:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://backend:8000
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL:-https://xhqakujyyaczjgljkgwk.supabase.co}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhocWFrdWp5eWFjempnbGprZ3drIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg5MjA5MjQsImV4cCI6MjA3NDQ5NjkyNH0.681WQKnS-oaqzCUFYkGc5xnIfzeZpeqZ0bviK5M5bjw}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhocWFrdWp5eWFjempnbGprZ3drIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg5MjA5MjQsImV4cCI6MjA3NDQ5NjkyNH0.681WQKnS-oaqzCUFYkGc5xnIfzeZpeqZ0bviK5M5bjw}
+      - NEXT_PUBLIC_FEATURE_SUMMARY_CITATIONS=${NEXT_PUBLIC_FEATURE_SUMMARY_CITATIONS:-true}
+      - ENABLE_DEBUG_ENDPOINTS=${ENABLE_DEBUG_ENDPOINTS:-false}
+    volumes:
+      - ./frontend/env.local:/app/.env.local:ro
     depends_on:
       - backend
     restart: unless-stopped
@@ -48,6 +80,16 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - REDIS_URL=redis://redis:6379/0
+      # Feature flags
+      - FEATURE_SUMMARY_CITATIONS=${FEATURE_SUMMARY_CITATIONS:-true}
+      - FEATURE_INLINE_EDITOR=${FEATURE_INLINE_EDITOR:-true}
+      - FEATURE_YOUTUBE_INGEST=${FEATURE_YOUTUBE_INGEST:-true}
+      - ENABLE_DEBUG_ENDPOINTS=${ENABLE_DEBUG_ENDPOINTS:-false}
+      # Summary configuration
+      - SUMMARY_MODEL=${SUMMARY_MODEL:-gpt-4o-mini}
+      - SUMMARY_EVIDENCE_TOPK=${SUMMARY_EVIDENCE_TOPK:-6}
+      - SUMMARY_SUPPORT_THRESHOLD=${SUMMARY_SUPPORT_THRESHOLD:-0.74}
+      - USE_CELERY=${USE_CELERY:-false}
       # Supabase configuration (optional)
       - SUPABASE_URL=${SUPABASE_URL:-}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
@@ -56,6 +98,19 @@ services:
       - DB_WRITE_SUPABASE=${DB_WRITE_SUPABASE:-true}
       - DB_WRITE_SQLITE=${DB_WRITE_SQLITE:-true}
       - ENABLE_PGVECTOR=${ENABLE_PGVECTOR:-true}
+      # YouTube configuration
+      - YT_TRANSCRIPT_LANGS=${YT_TRANSCRIPT_LANGS:-en,en-US}
+      - YT_PREFER_HUMAN=${YT_PREFER_HUMAN:-true}
+      - YT_FALLBACK_ANY_LANG=${YT_FALLBACK_ANY_LANG:-true}
+      - YT_HTTP_TIMEOUT_SEC=${YT_HTTP_TIMEOUT_SEC:-15}
+      - YT_RETRY_ATTEMPTS=${YT_RETRY_ATTEMPTS:-3}
+      - YT_RETRY_DELAY_MS=${YT_RETRY_DELAY_MS:-800}
+      - YT_COOKIES_FILE=${YT_COOKIES_FILE:-}
+      - YT_COOKIES_PATH=${YT_COOKIES_PATH:-}
+      - YT_USE_YTDLP_FALLBACK=${YT_USE_YTDLP_FALLBACK:-true}
+      - YT_YTDLP_PATH=${YT_YTDLP_PATH:-yt-dlp}
+      - YT_FFMPEG_PATH=${YT_FFMPEG_PATH:-ffmpeg}
+      - YT_TMP_DIR=${YT_TMP_DIR:-.cache/yt}
     volumes:
       - ./backend/uploads:/app/uploads
       - ./backend/pdf_flashcards.db:/app/pdf_flashcards.db

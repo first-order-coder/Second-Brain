@@ -3,6 +3,7 @@ import logging
 from contextlib import contextmanager
 from typing import List, Any, Optional
 import sqlite3
+from sqlalchemy import text
 from db.supabase_engine import SessionSupabase, SUPABASE_ENABLED
 
 logger = logging.getLogger(__name__)
@@ -101,9 +102,12 @@ def execute_dual_write_sql(sql: str, params: tuple = None) -> List[Any]:
                     result = cursor.fetchall() if sql.strip().upper().startswith('SELECT') else cursor.lastrowid
                     results.append(result)
                 else:  # supabase
-                    # Convert SQLite-style placeholders (?) to PostgreSQL-style ($1, $2, ...)
-                    pg_sql = convert_sqlite_to_postgres(sql, params)
-                    result = session.execute(pg_sql, params)
+                    # Convert SQLite-style placeholders (?) to PostgreSQL-style named parameters
+                    pg_sql, params_dict = convert_sqlite_to_postgres(sql, params)
+                    if params_dict:
+                        result = session.execute(text(pg_sql), **params_dict)
+                    else:
+                        result = session.execute(text(pg_sql))
                     if sql.strip().upper().startswith('SELECT'):
                         results.append(result.fetchall())
                     else:
@@ -115,17 +119,25 @@ def execute_dual_write_sql(sql: str, params: tuple = None) -> List[Any]:
     # Return result from first session (usually SQLite for compatibility)
     return results[0] if results else None
 
-def convert_sqlite_to_postgres(sql: str, params: tuple) -> str:
-    """Convert SQLite-style placeholders to PostgreSQL-style"""
+def convert_sqlite_to_postgres(sql: str, params: tuple) -> tuple:
+    """Convert SQLite-style placeholders to PostgreSQL-style with named parameters
+    
+    Returns:
+        tuple: (converted_sql, params_dict) where params_dict is a dictionary
+                with named parameters for SQLAlchemy 2.0
+    """
     if not params:
-        return sql
+        return (sql, {})
     
-    # Simple conversion: replace ? with $1, $2, etc.
+    # Convert ? placeholders to :param1, :param2, etc. and create a dict
     pg_sql = sql
+    params_dict = {}
     for i in range(len(params)):
-        pg_sql = pg_sql.replace('?', f'${i+1}', 1)
+        param_name = f"param_{i+1}"
+        pg_sql = pg_sql.replace('?', f':{param_name}', 1)
+        params_dict[param_name] = params[i]
     
-    return pg_sql
+    return (pg_sql, params_dict)
 
 def upsert_pdf(pdf_id: str, filename: str, status: str = "uploaded") -> str:
     """Upsert PDF record in both databases"""
@@ -150,8 +162,11 @@ def upsert_pdf(pdf_id: str, filename: str, status: str = "uploaded") -> str:
                     cursor = session.cursor()
                     cursor.execute(sqlite_sql, params)
                 else:  # supabase
-                    pg_sql = convert_sqlite_to_postgres(sql, params)
-                    session.execute(pg_sql, params)
+                    pg_sql, params_dict = convert_sqlite_to_postgres(sql, params)
+                    if params_dict:
+                        session.execute(text(pg_sql), **params_dict)
+                    else:
+                        session.execute(text(pg_sql))
             except Exception as e:
                 logger.error(f"Failed to upsert PDF on {db_type}: {e}")
                 raise
@@ -174,8 +189,11 @@ def upsert_flashcard(pdf_id: str, question: str, answer: str, card_number: int) 
                     cursor.execute(sql, params)
                     result = cursor.lastrowid
                 else:  # supabase
-                    pg_sql = convert_sqlite_to_postgres(sql, params)
-                    result = session.execute(pg_sql, params)
+                    pg_sql, params_dict = convert_sqlite_to_postgres(sql, params)
+                    if params_dict:
+                        result = session.execute(text(pg_sql), **params_dict)
+                    else:
+                        result = session.execute(text(pg_sql))
                     result = result.lastrowid
             except Exception as e:
                 logger.error(f"Failed to upsert flashcard on {db_type}: {e}")
@@ -194,8 +212,11 @@ def get_pdf_status(pdf_id: str) -> Optional[str]:
             cursor.execute(sql, params)
             result = cursor.fetchone()
         else:  # supabase session
-            pg_sql = convert_sqlite_to_postgres(sql, params)
-            result = session.execute(pg_sql, params).fetchone()
+            pg_sql, params_dict = convert_sqlite_to_postgres(sql, params)
+            if params_dict:
+                result = session.execute(text(pg_sql), **params_dict).fetchone()
+            else:
+                result = session.execute(text(pg_sql)).fetchone()
     
     return result[0] if result else None
 
@@ -210,8 +231,11 @@ def get_flashcards(pdf_id: str) -> List[tuple]:
             cursor.execute(sql, params)
             result = cursor.fetchall()
         else:  # supabase session
-            pg_sql = convert_sqlite_to_postgres(sql, params)
-            result = session.execute(pg_sql, params).fetchall()
+            pg_sql, params_dict = convert_sqlite_to_postgres(sql, params)
+            if params_dict:
+                result = session.execute(text(pg_sql), **params_dict).fetchall()
+            else:
+                result = session.execute(text(pg_sql)).fetchall()
     
     return result
 
@@ -227,8 +251,11 @@ def delete_flashcards(pdf_id: str) -> None:
                     cursor = session.cursor()
                     cursor.execute(sql, params)
                 else:  # supabase
-                    pg_sql = convert_sqlite_to_postgres(sql, params)
-                    session.execute(pg_sql, params)
+                    pg_sql, params_dict = convert_sqlite_to_postgres(sql, params)
+                    if params_dict:
+                        session.execute(text(pg_sql), **params_dict)
+                    else:
+                        session.execute(text(pg_sql))
             except Exception as e:
                 logger.error(f"Failed to delete flashcards on {db_type}: {e}")
                 raise
