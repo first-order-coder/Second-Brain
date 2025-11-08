@@ -1,4 +1,5 @@
 import Link from "next/link";
+import HeaderAuthControls from "@/components/app/HeaderAuthControls";
 import { createClient } from "@/lib/supabase/server";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
@@ -18,12 +19,7 @@ export default async function Header() {
         <div className="flex items-center gap-3">
           <ThemeToggle />
           {!user ? (
-            <Link
-              href="/auth"
-              className="rounded-md bg-black px-3 py-1.5 text-sm text-white"
-            >
-              Continue with Google
-            </Link>
+            <HeaderAuthControls />
           ) : (
             <div className="flex items-center gap-3">
               <Link href="/saved" className="text-sm underline">
