@@ -1,5 +1,5 @@
-'use client'
-import { useState } from 'react'
+"use client"
+import { useCallback, useState } from 'react'
 import { motion } from 'framer-motion'
 import { BookOpen, Sparkles, Layers, Upload, FileUp, Brain, Link as LinkIcon, Youtube, FileText } from 'lucide-react'
 import PDFUpload from '@/components/PDFUpload'
@@ -10,9 +10,26 @@ export default function Page() {
   const [isUploading, setIsUploading] = useState(false)
   const router = useRouter()
 
-  const handleUploadSuccess = (pdfId: string) => {
+  const saveDeckSilently = useCallback((deckId: string) => {
+    fetch("/api/save-deck", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ deckId }),
+    }).then(async (res) => {
+      const json = await res.json().catch(() => ({}));
+      if (!json?.ok) {
+        console.warn("[Home] save-deck failed", { deckId, json });
+      }
+    }).catch((error) => {
+      console.warn("[Home] save-deck error", { deckId, error });
+    });
+  }, []);
+
+  const handleUploadSuccess = useCallback((pdfId: string) => {
+    saveDeckSilently(pdfId)
     router.push(`/flashcards/${pdfId}`)
-  }
+  }, [router, saveDeckSilently])
 
   const loadDemo = () => {
     // TODO: route to a seeded demo deck or query param

@@ -42,6 +42,24 @@ export default function YTToCards() {
   } | null>(null);
   const [checkingTracks, setCheckingTracks] = useState(false);
 
+  const saveDeckSilently = useCallback((deckId: string) => {
+    fetch("/api/save-deck", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ deckId }),
+    })
+      .then((res) => res.json().catch(() => ({})))
+      .then((json) => {
+        if (!json?.ok) {
+          console.warn("[YTToCards] save-deck failed", { deckId, json });
+        }
+      })
+      .catch((error) => {
+        console.warn("[YTToCards] save-deck error", { deckId, error });
+      });
+  }, []);
+
   // Normalize paste (trim spaces/newlines)
   const onPasteLink = useCallback((e: React.ClipboardEvent<HTMLInputElement>) => {
     const text = e.clipboardData.getData("text");
@@ -111,6 +129,7 @@ export default function YTToCards() {
         // Auto-navigate to deck if deck_id is present (deck parity with PDF flow)
         if (data?.deck_id) {
           setLastDeckId(data.deck_id);
+          saveDeckSilently(data.deck_id);
           router.push(`/flashcards/${data.deck_id}`);
         }
       }
@@ -150,7 +169,12 @@ export default function YTToCards() {
         setError(data?.detail || "Failed to save deck.");
       } else {
         // Navigate to viewer for this synthetic deck id
-        window.location.href = `/flashcards/${data.pdf_id}`;
+        if (data?.pdf_id) {
+          saveDeckSilently(data.pdf_id);
+          window.location.href = `/flashcards/${data.pdf_id}`;
+        } else {
+          window.location.href = "/";
+        }
       }
     } catch {
       setError("Network error while saving deck.");

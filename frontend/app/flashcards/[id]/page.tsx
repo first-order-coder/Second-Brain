@@ -139,7 +139,12 @@ export default function FlashcardPage() {
 
   // Show flashcards if completed
   if (flashcardData.status === 'completed' && flashcardData.flashcards.length > 0) {
-    return <FlashcardViewer pdfId={pdfId} flashcards={flashcardData.flashcards} />
+    return (
+      <>
+        <SaveOnLoad deckId={pdfId} />
+        <FlashcardViewer pdfId={pdfId} flashcards={flashcardData.flashcards} />
+      </>
+    )
   }
 
   // No flashcards available
