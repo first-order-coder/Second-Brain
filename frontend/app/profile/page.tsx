@@ -1,12 +1,19 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import SavedDecksList from "@/components/decks/SavedDecksList";
+import SavedDecksList, {
+  type SavedDeckRecord,
+} from "@/components/decks/SavedDecksList";
 
 export default async function ProfilePage() {
   const supabase = createClient();
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser();
+
+  if (userError) {
+    console.error("[profile] Failed to load user", userError);
+  }
 
   if (!user) {
     return (
@@ -19,6 +26,18 @@ export default async function ProfilePage() {
       </div>
     );
   }
+
+  const { data, error } = await supabase
+    .from("user_decks")
+    .select("deck_id, created_at")
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (error) {
+    console.error("[profile] Failed to fetch user decks", error);
+  }
+
+  const decks = (data as SavedDeckRecord[] | null) ?? [];
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
@@ -38,7 +57,12 @@ export default async function ProfilePage() {
         </div>
       </div>
 
-      <SavedDecksList limit={10} showTitle />
+      <SavedDecksList
+        decks={decks}
+        limit={10}
+        showTitle
+        errorMessage={error?.message ?? null}
+      />
 
       <div className="flex items-center justify-between">
         <Link href="/saved" className="text-sm underline">

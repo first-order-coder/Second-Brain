@@ -1,52 +1,35 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
 
-type SavedDecksListProps = {
-  limit?: number;
-  showTitle?: boolean;
+export type SavedDeckRecord = {
+  deck_id: string;
+  created_at: string;
 };
 
-export default async function SavedDecksList({
+type SavedDecksListProps = {
+  decks: SavedDeckRecord[];
+  limit?: number;
+  showTitle?: boolean;
+  errorMessage?: string | null;
+};
+
+export default function SavedDecksList({
+  decks,
   limit,
   showTitle = true,
+  errorMessage = null,
 }: SavedDecksListProps) {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return (
-      <div className="rounded-md border p-4 text-sm">
-        Please{" "}
-        <Link href="/auth" className="underline">
-          sign in
-        </Link>{" "}
-        to view your saved decks.
-      </div>
-    );
-  }
-
-  let query = supabase
-    .from("user_decks")
-    .select("deck_id, created_at")
-    .order("created_at", { ascending: false });
-
-  if (typeof limit === "number") {
-    query = query.limit(limit);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
+  if (errorMessage) {
     return (
       <div className="rounded-md border p-4 text-sm text-red-600">
-        Error: {error.message}
+        Error: {errorMessage}
       </div>
     );
   }
 
-  if (!data || data.length === 0) {
+  const visibleDecks =
+    typeof limit === "number" ? decks.slice(0, Math.max(0, limit)) : decks;
+
+  if (!visibleDecks || visibleDecks.length === 0) {
     return (
       <div className="rounded-md border p-4 text-sm">
         No decks saved yet. Generate a deck and open it once.
@@ -58,7 +41,7 @@ export default async function SavedDecksList({
     <div className="space-y-3">
       {showTitle && <h2 className="text-lg font-semibold">My Decks</h2>}
       <ul className="space-y-2">
-        {data.map((deck) => {
+        {visibleDecks.map((deck) => {
           const deckId = String(deck.deck_id);
           return (
             <li
@@ -84,5 +67,4 @@ export default async function SavedDecksList({
     </div>
   );
 }
-
 

@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
+  const next = url.searchParams.get("next");
 
   if (code) {
     const supabase = createClient();
@@ -14,9 +15,7 @@ export async function GET(request: Request) {
     }
   }
 
-  const next = url.searchParams.get("next");
   const destination = next ? `${url.origin}${next}` : `${url.origin}/`;
   return NextResponse.redirect(destination);
 }
-
 
