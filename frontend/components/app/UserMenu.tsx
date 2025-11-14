@@ -58,10 +58,33 @@ export default function UserMenu({ email, name, imageUrl }: UserMenuProps) {
           <DropdownMenuItem
             onSelect={(event) => {
               event.preventDefault();
-              const form = document.getElementById(
-                signOutFormId,
-              ) as HTMLFormElement | null;
-              form?.requestSubmit();
+              try {
+                const form = document.getElementById(
+                  signOutFormId,
+                ) as HTMLFormElement | null;
+                if (form) {
+                  form.requestSubmit();
+                } else {
+                  // Fallback: create and submit form programmatically
+                  const fallbackForm = document.createElement("form");
+                  fallbackForm.method = "post";
+                  fallbackForm.action = "/auth/signout";
+                  document.body.appendChild(fallbackForm);
+                  fallbackForm.submit();
+                }
+              } catch (error) {
+                // Fallback: if form submission fails, create and submit form
+                console.error("[UserMenu] Sign out form error:", error);
+                try {
+                  const fallbackForm = document.createElement("form");
+                  fallbackForm.method = "post";
+                  fallbackForm.action = "/auth/signout";
+                  document.body.appendChild(fallbackForm);
+                  fallbackForm.submit();
+                } catch (fallbackError) {
+                  console.error("[UserMenu] Fallback sign out failed:", fallbackError);
+                }
+              }
             }}
           >
             <span className="w-full text-left">Sign out</span>

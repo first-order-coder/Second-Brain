@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-// Ensure we are using the Node runtime (Supabase SSR expects this)
+// Make sure this is a Node route, not edge
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  // We will *always* send the user back to home, even on error
   const redirectUrl = new URL("/", req.url);
-  const res = NextResponse.redirect(redirectUrl);
+  // Use 303 See Other for POST->GET redirect (prevents client-side issues)
+  const res = NextResponse.redirect(redirectUrl, { status: 303 });
 
   try {
     const supabase = createServerClient(
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 
     await supabase.auth.signOut();
   } catch (error) {
-    // IMPORTANT: do not rethrow, just log, so we don't get a 500 page
+    // Do NOT throw – just log, so we never surface a 500 page
     console.error("[auth/signout] Error during sign out:", error);
   }
 
