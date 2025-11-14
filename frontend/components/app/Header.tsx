@@ -5,24 +5,36 @@ import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import UserMenu from "@/components/app/UserMenu";
 
 export default async function Header() {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const email = user?.email ?? null;
-  const metadata = (user?.user_metadata ?? {}) as Record<string, unknown>;
-  const name =
-    typeof metadata.name === "string"
-      ? metadata.name
-      : typeof metadata.full_name === "string"
-        ? metadata.full_name
-        : null;
-  const imageUrl =
-    (typeof metadata.avatar_url === "string"
-      ? metadata.avatar_url
-      : typeof metadata.picture === "string"
-        ? metadata.picture
-        : null) ?? null;
+  let user = null;
+  let email = null;
+  let name = null;
+  let imageUrl = null;
+
+  try {
+    const supabase = createClient();
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser();
+    user = authUser;
+    email = user?.email ?? null;
+    const metadata = (user?.user_metadata ?? {}) as Record<string, unknown>;
+    name =
+      typeof metadata.name === "string"
+        ? metadata.name
+        : typeof metadata.full_name === "string"
+          ? metadata.full_name
+          : null;
+    imageUrl =
+      (typeof metadata.avatar_url === "string"
+        ? metadata.avatar_url
+        : typeof metadata.picture === "string"
+          ? metadata.picture
+          : null) ?? null;
+  } catch (error) {
+    // If auth check fails (e.g., after signout), treat as logged out
+    console.error("[Header] Failed to get user:", error);
+    user = null;
+  }
 
   return (
     <header className="w-full border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">

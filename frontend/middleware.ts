@@ -1,7 +1,17 @@
-import type { NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 
 export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  if (req.method !== "GET") {
+    return NextResponse.next();
+  }
+
+  if (pathname === "/auth/signout") {
+    return NextResponse.next();
+  }
+
   return updateSession(req);
 }
 

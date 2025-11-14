@@ -6,6 +6,8 @@ import Header from "@/components/app/Header";
 
 const inter = Inter({ subsets: ["latin"] });
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Second Brain",
   description: "AI-powered learning & knowledge platform",
