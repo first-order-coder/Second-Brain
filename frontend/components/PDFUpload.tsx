@@ -6,7 +6,7 @@ import { Upload, FileText, CheckCircle, AlertCircle, Loader2 } from 'lucide-reac
 import { motion, AnimatePresence } from 'framer-motion'
 
 interface PDFUploadProps {
-  onUploadSuccess: (pdfId: string) => void
+  onUploadSuccess: (pdfId: string, filename?: string | null) => void
   onUploadStart: () => void
   onUploadEnd: () => void
 }
@@ -19,10 +19,14 @@ interface UploadStatus {
 
 export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd }: PDFUploadProps) {
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>({ type: 'idle' })
+  const [currentFilename, setCurrentFilename] = useState<string | null>(null)
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0]
     if (!file) return
+    const filename = file.name.replace(/\.pdf$/i, '') // Remove .pdf extension for title
+    console.log("[PDFUpload] File dropped:", { originalName: file.name, extractedFilename: filename });
+    setCurrentFilename(filename)
 
     // Validate file type
     if (file.type !== 'application/pdf') {
@@ -74,8 +78,8 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
         pdfId: result.pdf_id 
       })
       
-      // Start flashcard generation
-      await generateFlashcards(result.pdf_id)
+      // Start flashcard generation - pass filename so it's available when completion happens
+      await generateFlashcards(result.pdf_id, filename)
       
     } catch (error) {
       setUploadStatus({ 
@@ -86,7 +90,7 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
     }
   }, [onUploadSuccess, onUploadStart, onUploadEnd])
 
-  const generateFlashcards = async (pdfId: string) => {
+  const generateFlashcards = async (pdfId: string, filename: string) => {
     try {
       setUploadStatus({ 
         type: 'uploading', 
@@ -102,7 +106,7 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
         throw new Error(error.detail || 'Flashcard generation failed')
       }
 
-      // Poll for completion
+      // Poll for completion - capture filename in closure
       const pollStatus = async () => {
         try {
           const statusResponse = await fetch(`/api/status/${pdfId}`)
@@ -115,7 +119,8 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
               pdfId 
             })
             onUploadEnd()
-            setTimeout(() => onUploadSuccess(pdfId), 1000)
+            console.log("[PDFUpload] Calling onUploadSuccess with:", { pdfId, filename });
+            setTimeout(() => onUploadSuccess(pdfId, filename), 1000)
           } else if (['error', 'quota_exceeded', 'auth_error', 'timeout', 'service_error'].includes(statusData.status)) {
             setUploadStatus({ 
               type: 'error', 

@@ -10,25 +10,55 @@ export default function Page() {
   const [isUploading, setIsUploading] = useState(false)
   const router = useRouter()
 
-  const saveDeckSilently = useCallback((deckId: string) => {
+  const saveDeckSilently = useCallback((deckId: string, filename?: string | null) => {
+    // PDFUpload already removes .pdf extension, but handle any remaining extensions just in case
+    const title = filename ? filename.replace(/\.[^/.]+$/, "") : null;
+    console.log("[Home] saveDeckSilently called:", { deckId, filename, extractedTitle: title });
+    
+    // CRITICAL: Only save if we have a title - don't send null for new decks
+    if (!title) {
+      console.warn("[Home] No title available, skipping save. Filename was:", filename);
+      return;
+    }
+    
     fetch("/api/save-deck", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ deckId }),
+      body: JSON.stringify({
+        deckId,
+        title, // Always send a real title, never null
+        sourceType: "pdf",
+        sourceLabel: title,
+      }),
     }).then(async (res) => {
       const json = await res.json().catch(() => ({}));
       if (!json?.ok) {
         console.warn("[Home] save-deck failed", { deckId, json });
+      } else {
+        console.log("[Home] save-deck succeeded", { deckId, title });
       }
     }).catch((error) => {
       console.warn("[Home] save-deck error", { deckId, error });
     });
   }, []);
 
-  const handleUploadSuccess = useCallback((pdfId: string) => {
-    saveDeckSilently(pdfId)
-    router.push(`/flashcards/${pdfId}`)
+  const handleUploadSuccess = useCallback((pdfId: string, filename?: string | null) => {
+    // Extract title (PDFUpload already removed .pdf, but be defensive)
+    const title = filename ? filename.replace(/\.[^/.]+$/, "") : null;
+    
+    // Save deck with title
+    saveDeckSilently(pdfId, filename);
+    
+    // Pass title via URL params so flashcard page can use it
+    const params = new URLSearchParams();
+    if (title) {
+      params.set('title', title);
+      params.set('sourceType', 'pdf');
+    }
+    const queryString = params.toString();
+    console.log("[Home] Navigating to flashcard page:", { pdfId, title, queryString });
+    router.push(`/flashcards/${pdfId}${queryString ? `?${queryString}` : ''}`);
   }, [router, saveDeckSilently])
 
   const loadDemo = () => {

@@ -42,12 +42,19 @@ export default function YTToCards() {
   } | null>(null);
   const [checkingTracks, setCheckingTracks] = useState(false);
 
-  const saveDeckSilently = useCallback((deckId: string) => {
+  const saveDeckSilently = useCallback((deckId: string, title?: string | null) => {
+    // Use actual video title if available, otherwise use video_id or deckId
+    const videoTitle = title || resp?.title || (resp?.video_id ? `YouTube: ${resp.video_id}` : deckId);
     fetch("/api/save-deck", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ deckId }),
+      body: JSON.stringify({
+        deckId,
+        title: videoTitle,
+        sourceType: "youtube",
+        sourceLabel: resp?.title || resp?.url || null,
+      }),
     })
       .then((res) => res.json().catch(() => ({})))
       .then((json) => {
@@ -58,7 +65,7 @@ export default function YTToCards() {
       .catch((error) => {
         console.warn("[YTToCards] save-deck error", { deckId, error });
       });
-  }, []);
+  }, [resp]);
 
   // Normalize paste (trim spaces/newlines)
   const onPasteLink = useCallback((e: React.ClipboardEvent<HTMLInputElement>) => {
@@ -129,8 +136,15 @@ export default function YTToCards() {
         // Auto-navigate to deck if deck_id is present (deck parity with PDF flow)
         if (data?.deck_id) {
           setLastDeckId(data.deck_id);
-          saveDeckSilently(data.deck_id);
-          router.push(`/flashcards/${data.deck_id}`);
+          const videoTitle = data?.title || resp?.title;
+          saveDeckSilently(data.deck_id, videoTitle);
+          // Pass video title via URL params so flashcard page can use it
+          const params = new URLSearchParams();
+          if (videoTitle) {
+            params.set('title', videoTitle);
+            params.set('sourceType', 'youtube');
+          }
+          router.push(`/flashcards/${data.deck_id}${params.toString() ? `?${params.toString()}` : ''}`);
         }
       }
     } catch (err: any) {
@@ -170,8 +184,15 @@ export default function YTToCards() {
       } else {
         // Navigate to viewer for this synthetic deck id
         if (data?.pdf_id) {
-          saveDeckSilently(data.pdf_id);
-          window.location.href = `/flashcards/${data.pdf_id}`;
+          const videoTitle = resp?.title;
+          saveDeckSilently(data.pdf_id, videoTitle);
+          // Pass video title via URL params
+          const params = new URLSearchParams();
+          if (videoTitle) {
+            params.set('title', videoTitle);
+            params.set('sourceType', 'youtube');
+          }
+          window.location.href = `/flashcards/${data.pdf_id}${params.toString() ? `?${params.toString()}` : ''}`;
         } else {
           window.location.href = "/";
         }

@@ -14,10 +14,31 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = await saveDeck(deckId);
+    const title = typeof body?.title === "string" && body.title.trim() !== "" ? body.title.trim() : null;
+    const sourceType = typeof body?.sourceType === "string" ? body.sourceType : null;
+    const sourceLabel = typeof body?.sourceLabel === "string" ? body.sourceLabel : null;
+
+    const options = {
+      title,
+      sourceType,
+      sourceLabel,
+    };
+
+    // Log received data for debugging
+    console.log("[api/save-deck] Received:", { 
+      deckId, 
+      title: options.title, 
+      sourceType: options.sourceType, 
+      sourceLabel: options.sourceLabel,
+      rawBody: { title: body?.title, sourceType: body?.sourceType, sourceLabel: body?.sourceLabel }
+    });
+
+    const result = await saveDeck(deckId, options);
     const status = result.ok ? 200 : result.error === "Not authenticated" ? 401 : 500;
     if (!result.ok) {
       console.warn("[api/save-deck] Save failed", { deckId, error: result.error });
+    } else {
+      console.log("[api/save-deck] Save succeeded", { deckId, title: options.title });
     }
     return NextResponse.json(result, { status });
   } catch (error) {

@@ -129,7 +129,7 @@ execute procedure public.handle_new_user();
 -- User decks linkage for Supabase-saved decks
 create table if not exists public.user_decks (
   user_id uuid not null references auth.users(id) on delete cascade,
-  deck_id uuid not null,
+  deck_id text not null,
   role text not null default 'owner',
   created_at timestamptz not null default now(),
   primary key (user_id, deck_id)
@@ -137,8 +137,74 @@ create table if not exists public.user_decks (
 
 alter table public.user_decks enable row level security;
 
+drop policy if exists user_decks_owner_all on public.user_decks;
 drop policy if exists user_decks_is_owner on public.user_decks;
-create policy user_decks_is_owner
-  on public.user_decks for all
+
+create policy user_decks_owner_all
+  on public.user_decks
+  as permissive
+  for all
+  to public
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
+
+-- Deck metadata table for human-readable titles
+create table if not exists public.decks (
+  deck_id text primary key,
+  title text not null,
+  source_type text,      -- "pdf" | "youtube"
+  source_label text,     -- filename or youtube title
+  created_at timestamptz not null default now()
+);
+
+alter table public.decks enable row level security;
+
+drop policy if exists decks_read_all on public.decks;
+drop policy if exists decks_write_all on public.decks;
+drop policy if exists decks_update_all on public.decks;
+
+create policy decks_read_all
+  on public.decks
+  for select
+  to authenticated
+  using (true);
+
+create policy decks_write_all
+  on public.decks
+  for insert
+  to authenticated
+  with check (true);
+
+create policy decks_update_all
+  on public.decks
+  for update
+  to authenticated
+  using (true)
+  with check (true);
+
+-- Foreign key: user_decks.deck_id → decks.deck_id
+-- Only add if types match (both text) to avoid FK errors
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'user_decks_deck_id_fkey'
+  ) then
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'user_decks'
+        and column_name = 'deck_id'
+        and data_type = 'text'
+    ) then
+      alter table public.user_decks
+        add constraint user_decks_deck_id_fkey
+        foreign key (deck_id)
+        references public.decks(deck_id)
+        on delete cascade;
+    end if;
+  end if;
+end $$;
+
+create index if not exists idx_user_decks_deck_id
+  on public.user_decks(deck_id);

@@ -3,6 +3,7 @@ import Link from "next/link";
 export type SavedDeckRecord = {
   deck_id: string;
   created_at: string;
+  decks?: { title: string | null } | null;
 };
 
 type SavedDecksListProps = {
@@ -43,15 +44,41 @@ export default function SavedDecksList({
       <ul className="space-y-2">
         {visibleDecks.map((deck) => {
           const deckId = String(deck.deck_id);
+          // Debug: log the deck structure
+          console.log("[SavedDecksList] Deck structure:", { deckId, decks: deck.decks, title: deck.decks?.title });
+          
+          // Handle different possible data structures from Supabase
+          // Supabase might return decks as an array or object
+          let title: string | null = null;
+          if (Array.isArray(deck.decks) && deck.decks.length > 0) {
+            title = deck.decks[0]?.title ?? null;
+          } else if (deck.decks && typeof deck.decks === 'object' && 'title' in deck.decks) {
+            title = (deck.decks as { title: string | null }).title;
+          }
+          
+          const displayTitle = title ?? deckId;
+          
+          // Fix timezone - ensure we're using local timezone
+          const savedDate = new Date(deck.created_at);
+          const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const savedAtString = savedDate.toLocaleString(undefined, {
+            timeZone: timezone,
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          
           return (
             <li
               key={deckId}
               className="flex items-center justify-between rounded-md border px-4 py-2"
             >
               <div className="flex flex-col">
-                <span className="text-sm font-medium">{deckId}</span>
+                <span className="text-sm font-medium">{displayTitle}</span>
                 <span className="text-xs text-muted-foreground">
-                  Saved {new Date(deck.created_at).toLocaleString()}
+                  Saved {savedAtString}
                 </span>
               </div>
               <Link
