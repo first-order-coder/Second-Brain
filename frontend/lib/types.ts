@@ -34,6 +34,7 @@ export type YouTubeCard = {
 export type YouTubeFlashcardsResponse = {
   video_id: string;
   title?: string | null;
+  videoTitle?: string | null; // Real YouTube title from oEmbed (alias for title)
   url: string;
   lang: string;
   cards: YouTubeCard[];

@@ -18,9 +18,15 @@ export default function SaveOnLoad({
 }: SaveOnLoadProps) {
   const router = useRouter();
   
-  // CRITICAL FIX: Don't render at all if no title - prevents overwriting existing good titles
+  // CRITICAL: Don't render at all if no deckId or title
+  // Note: For YouTube, title should always be provided (with fallback from FlashcardPage)
   if (!deckId || !title) {
-    console.warn("[SaveOnLoad] Skipping save because deckId or title is missing", { deckId, title });
+    console.warn("[SaveOnLoad] Skipping save because deckId or title is missing", { 
+      deckId, 
+      title,
+      sourceType,
+      sourceLabel,
+    });
     return null;
   }
 
@@ -38,21 +44,38 @@ export default function SaveOnLoad({
           sourceType: sourceType ?? null,
           sourceLabel: sourceLabel ?? title ?? null,
         };
-        console.log("[SaveOnLoad] POSTing to /api/save-deck:", payload);
+        console.log("[SaveOnLoad] POSTing to /api/save-deck:", {
+          deckId,
+          title,
+          sourceType,
+          sourceLabel,
+        });
         const res = await fetch("/api/save-deck", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify(payload),
         });
-        const json = await res.json().catch(() => ({}));
+        
         if (!aborted) {
-          if (!json?.ok) {
-            console.warn("[SaveOnLoad] save-deck failed", { deckId, json });
+          console.log("[SaveOnLoad] save-deck result:", res.status);
+          if (!res.ok) {
+            const errorText = await res.text().catch(() => "Unknown error");
+            console.error("[SaveOnLoad] save-deck failed", { 
+              deckId, 
+              status: res.status,
+              statusText: res.statusText,
+              error: errorText 
+            });
           } else {
-            console.log("[SaveOnLoad] save-deck succeeded, refreshing router");
-            // Refresh router to update /saved page cache
-            router.refresh();
+            const json = await res.json().catch(() => ({}));
+            if (!json?.ok) {
+              console.warn("[SaveOnLoad] save-deck returned not ok", { deckId, json });
+            } else {
+              console.log("[SaveOnLoad] save-deck succeeded, refreshing router");
+              // Refresh router to update /saved page cache
+              router.refresh();
+            }
           }
           setDone(true);
         }

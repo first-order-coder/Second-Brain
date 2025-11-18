@@ -42,30 +42,43 @@ export default function YTToCards() {
   } | null>(null);
   const [checkingTracks, setCheckingTracks] = useState(false);
 
-  const saveDeckSilently = useCallback((deckId: string, title?: string | null) => {
-    // Use actual video title if available, otherwise use video_id or deckId
-    const videoTitle = title || resp?.title || (resp?.video_id ? `YouTube: ${resp.video_id}` : deckId);
+  // Client-side URL cleaning as safeguard
+  const cleanYoutubeUrl = useCallback((raw: string): string => {
+    const s = raw.trim();
+    // Fix duplicated URLs
+    if (s.length % 2 === 0) {
+      const half = s.length / 2;
+      if (s.slice(0, half) === s.slice(half)) {
+        return s.slice(0, half);
+      }
+    }
+    return s;
+  }, []);
+
+  const saveDeckSilently = useCallback((deckId: string, title: string, sourceLabel: string) => {
     fetch("/api/save-deck", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({
         deckId,
-        title: videoTitle,
+        title,
         sourceType: "youtube",
-        sourceLabel: resp?.title || resp?.url || null,
+        sourceLabel,
       }),
     })
       .then((res) => res.json().catch(() => ({})))
       .then((json) => {
         if (!json?.ok) {
           console.warn("[YTToCards] save-deck failed", { deckId, json });
+        } else {
+          console.log("[YTToCards] save-deck succeeded", { deckId, title });
         }
       })
       .catch((error) => {
         console.warn("[YTToCards] save-deck error", { deckId, error });
       });
-  }, [resp]);
+  }, []);
 
   // Normalize paste (trim spaces/newlines)
   const onPasteLink = useCallback((e: React.ClipboardEvent<HTMLInputElement>) => {
@@ -107,17 +120,19 @@ export default function YTToCards() {
     setError(null); 
     setResp(null);
     try {
+      // Clean URL on client side as safeguard
+      const cleanedUrl = cleanYoutubeUrl(url);
+      console.log("[YTToCards] Sending request with URL:", cleanedUrl);
+      
       // Build payload - fixed 10 cards on server side
       const payload: any = {
-        url,
+        url: cleanedUrl, // Send cleaned URL
         n_cards: 10, // Fixed value, server will enforce 10
         langHint,
         allow_auto_generated: allowAuto,
         use_cookies: useCookies,
         enable_fallback: enableFallback
       };
-      
-      // No requested_count sent - server will force 10
       
       const r = await fetch("/api/youtube/flashcards", {
         method: "POST",
@@ -133,18 +148,72 @@ export default function YTToCards() {
         }
       } else {
         setResp(data);
+        console.log("[YTToCards] onGenerate success:", {
+          deckId: data.deck_id,
+          videoTitle: data.videoTitle || data.title,
+          responseUrl: data.url,
+          cleanUrlFromBackend: data.url,
+        });
+        
         // Auto-navigate to deck if deck_id is present (deck parity with PDF flow)
         if (data?.deck_id) {
           setLastDeckId(data.deck_id);
-          const videoTitle = data?.title || resp?.title;
-          saveDeckSilently(data.deck_id, videoTitle);
-          // Pass video title via URL params so flashcard page can use it
-          const params = new URLSearchParams();
-          if (videoTitle) {
-            params.set('title', videoTitle);
-            params.set('sourceType', 'youtube');
+          
+          // Use backend-provided videoTitle or title, fallback to video ID
+          const finalUrl = data.url ?? cleanedUrl;
+          const fallbackTitle = (() => {
+            try {
+              const u = new URL(finalUrl);
+              const v = u.searchParams.get("v");
+              if (v) return `YouTube: ${v}`;
+            } catch {
+              // ignore
+            }
+            return "YouTube deck";
+          })();
+          
+          const deckTitle = (data.videoTitle || data.title || fallbackTitle).trim();
+          
+          // CRITICAL: Ensure we always have a non-empty title (never null/empty)
+          if (!deckTitle || deckTitle.length === 0) {
+            console.error("[YTToCards] No valid title available, using fallback", {
+              deckId: data.deck_id,
+              videoTitle: data.videoTitle,
+              title: data.title,
+              fallbackTitle,
+            });
+            // This should never happen, but if it does, use a descriptive fallback
+            const emergencyFallback = `YouTube: ${data.video_id || data.deck_id.slice(0, 8)}`;
+            console.warn("[YTToCards] Using emergency fallback title:", emergencyFallback);
+            // Don't proceed without a title - this would cause UUID titles
+            setError("Failed to get video title. Please try again.");
+            return;
           }
-          router.push(`/flashcards/${data.deck_id}${params.toString() ? `?${params.toString()}` : ''}`);
+          
+          console.log("[YTToCards] Using deckTitle:", deckTitle);
+          console.log("[YTToCards] Calling saveDeckSilently for YouTube:", {
+            deckId: data.deck_id,
+            deckTitle,
+            sourceType: "youtube",
+            sourceLabel: finalUrl,
+          });
+          
+          // Save deck with proper title and URL (fire-and-forget, SaveOnLoad will also try)
+          saveDeckSilently(data.deck_id, deckTitle, finalUrl);
+          
+          // Pass all needed params to flashcard page
+          const query = new URLSearchParams({
+            title: deckTitle,
+            sourceType: "youtube",
+            sourceLabel: finalUrl,
+          });
+          
+          console.log("[YTToCards] Navigating to flashcard page:", {
+            deckId: data.deck_id,
+            query: query.toString(),
+          });
+          
+          router.push(`/flashcards/${data.deck_id}?${query.toString()}`);
         }
       }
     } catch (err: any) {
@@ -184,15 +253,26 @@ export default function YTToCards() {
       } else {
         // Navigate to viewer for this synthetic deck id
         if (data?.pdf_id) {
-          const videoTitle = resp?.title;
-          saveDeckSilently(data.pdf_id, videoTitle);
-          // Pass video title via URL params
-          const params = new URLSearchParams();
-          if (videoTitle) {
-            params.set('title', videoTitle);
-            params.set('sourceType', 'youtube');
-          }
-          window.location.href = `/flashcards/${data.pdf_id}${params.toString() ? `?${params.toString()}` : ''}`;
+          const finalUrl = resp?.url || url;
+          const fallbackTitle = (() => {
+            try {
+              const u = new URL(finalUrl);
+              const v = u.searchParams.get("v");
+              if (v) return `YouTube: ${v}`;
+            } catch {
+              // ignore
+            }
+            return "YouTube deck";
+          })();
+          const deckTitle = (resp?.videoTitle || resp?.title || fallbackTitle).trim();
+          saveDeckSilently(data.pdf_id, deckTitle, finalUrl);
+          // Pass all needed params to flashcard page
+          const params = new URLSearchParams({
+            title: deckTitle,
+            sourceType: "youtube",
+            sourceLabel: finalUrl,
+          });
+          window.location.href = `/flashcards/${data.pdf_id}?${params.toString()}`;
         } else {
           window.location.href = "/";
         }

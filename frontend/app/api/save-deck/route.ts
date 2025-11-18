@@ -1,46 +1,46 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { saveDeck } from "@/app/actions/save-deck";
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const deckId = typeof body?.deckId === "string" ? body.deckId : null;
 
-    if (!deckId) {
-      console.warn("[api/save-deck] Missing deckId in request body", body);
-      return NextResponse.json(
-        { ok: false, error: "Missing deckId" },
-        { status: 400 },
-      );
-    }
+    const deckId = body.deckId as string | undefined;
+    const title = body.title as string | undefined;
+    const sourceType = (body.sourceType as string | undefined) ?? null;
+    const sourceLabel = (body.sourceLabel as string | undefined) ?? null;
 
-    const title = typeof body?.title === "string" && body.title.trim() !== "" ? body.title.trim() : null;
-    const sourceType = typeof body?.sourceType === "string" ? body.sourceType : null;
-    const sourceLabel = typeof body?.sourceLabel === "string" ? body.sourceLabel : null;
-
-    const options = {
+    console.log("[api/save-deck] Received body:", {
+      deckId,
       title,
       sourceType,
       sourceLabel,
-    };
-
-    // Log received data for debugging
-    console.log("[api/save-deck] Received:", { 
-      deckId, 
-      title: options.title, 
-      sourceType: options.sourceType, 
-      sourceLabel: options.sourceLabel,
-      rawBody: { title: body?.title, sourceType: body?.sourceType, sourceLabel: body?.sourceLabel }
     });
 
-    const result = await saveDeck(deckId, options);
-    const status = result.ok ? 200 : result.error === "Not authenticated" ? 401 : 500;
-    if (!result.ok) {
-      console.warn("[api/save-deck] Save failed", { deckId, error: result.error });
-    } else {
-      console.log("[api/save-deck] Save succeeded", { deckId, title: options.title });
+    // IMPORTANT: no fallback here - reject if missing
+    if (!deckId || !title) {
+      return NextResponse.json(
+        { ok: false, error: "deckId and title are required" },
+        { status: 400 }
+      );
     }
-    return NextResponse.json(result, { status });
+
+    const result = await saveDeck(deckId, { title, sourceType, sourceLabel });
+    
+    if (!result.ok) {
+      const status = result.error === "Not authenticated" ? 401 : 500;
+      console.warn("[api/save-deck] Save failed", { deckId, error: result.error, sourceType });
+      return NextResponse.json(result, { status });
+    }
+
+    console.log("[api/save-deck] Save succeeded", { 
+      deckId, 
+      title, 
+      sourceType,
+      sourceLabel,
+    });
+    
+    return NextResponse.json({ ok: true, deckId, title }, { status: 200 });
   } catch (error) {
     console.error("[api/save-deck] Unexpected error", error);
     return NextResponse.json(

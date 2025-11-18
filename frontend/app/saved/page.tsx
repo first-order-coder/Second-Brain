@@ -66,8 +66,12 @@ export default async function SavedDecksPage() {
   }
 
   // Debug: log what we actually got
-  console.log("[saved] Raw data from Supabase:", JSON.stringify(data, null, 2));
-  console.log("[saved] First deck sample:", data?.[0]);
+  console.log("[/saved] Loaded user_decks:", {
+    count: data?.length ?? 0,
+    userId: user.id,
+    sample: data?.[0],
+    allDeckIds: data?.map(d => d.deck_id) ?? [],
+  });
   if (error) {
     console.error("[saved] Final error after fallback:", error);
   }

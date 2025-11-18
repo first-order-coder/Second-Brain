@@ -13,7 +13,13 @@ export default function Page() {
   const saveDeckSilently = useCallback((deckId: string, filename?: string | null) => {
     // PDFUpload already removes .pdf extension, but handle any remaining extensions just in case
     const title = filename ? filename.replace(/\.[^/.]+$/, "") : null;
-    console.log("[Home] saveDeckSilently called:", { deckId, filename, extractedTitle: title });
+    console.log("[saveDeckSilently] Payload:", {
+      deckId,
+      filename,
+      extractedTitle: title,
+      sourceType: "pdf",
+      sourceLabel: title,
+    });
     
     // CRITICAL: Only save if we have a title - don't send null for new decks
     if (!title) {
@@ -45,20 +51,42 @@ export default function Page() {
 
   const handleUploadSuccess = useCallback((pdfId: string, filename?: string | null) => {
     // Extract title (PDFUpload already removed .pdf, but be defensive)
-    const title = filename ? filename.replace(/\.[^/.]+$/, "") : null;
+    // CRITICAL: Always derive a clean title from filename
+    const cleanTitle = filename ? filename.replace(/\.[^/.]+$/, "").trim() : null;
     
-    // Save deck with title
+    if (!cleanTitle) {
+      console.error("[Home] No title available from filename", { pdfId, filename });
+      // Still navigate but without title - SaveOnLoad won't run, which is fine
+      router.push(`/flashcards/${pdfId}`);
+      return;
+    }
+    
+    // Use original filename (with extension) as sourceLabel
+    const sourceLabel = filename || cleanTitle;
+    
+    console.log("[PDFUpload] onGenerate success:", {
+      deckId: pdfId,
+      deckTitle: cleanTitle,
+      sourceLabel,
+    });
+    
+    // Save deck with title and sourceLabel
     saveDeckSilently(pdfId, filename);
     
-    // Pass title via URL params so flashcard page can use it
-    const params = new URLSearchParams();
-    if (title) {
-      params.set('title', title);
-      params.set('sourceType', 'pdf');
-    }
-    const queryString = params.toString();
-    console.log("[Home] Navigating to flashcard page:", { pdfId, title, queryString });
-    router.push(`/flashcards/${pdfId}${queryString ? `?${queryString}` : ''}`);
+    // Pass ALL params via URL so flashcard page can use them
+    const query = new URLSearchParams({
+      title: cleanTitle,
+      sourceType: 'pdf',
+      sourceLabel: sourceLabel,
+    });
+    
+    console.log("[Home] Navigating to flashcard page:", { 
+      pdfId, 
+      title: cleanTitle, 
+      sourceLabel,
+      query: query.toString() 
+    });
+    router.push(`/flashcards/${pdfId}?${query.toString()}`);
   }, [router, saveDeckSilently])
 
   const loadDemo = () => {

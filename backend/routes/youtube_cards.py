@@ -5,8 +5,10 @@ import logging
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
+import httpx
 
 from services.youtube_transcript import get_transcript, list_transcripts
+from services.youtube_utils import clean_youtube_url
 from services.cardify import (
     merge_small_segments, 
     semantic_windows, 
@@ -72,6 +74,8 @@ class YouTubeFlashcardsResponse(BaseModel):
     warnings: List[str]
     # Added for deck parity (additive, backwards-compatible)
     deck_id: Optional[str] = None
+    # New fields for proper title handling
+    videoTitle: Optional[str] = None  # Real YouTube title from oEmbed
 
 @router.get("/flashcards/ping")
 async def youtube_flashcards_ping():
@@ -128,17 +132,55 @@ async def get_youtube_tracks(url: str):
         logger.error(f"Unexpected error listing tracks: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+async def fetch_youtube_title(url: str) -> Optional[str]:
+    """
+    Fetch YouTube video title using oEmbed API.
+    Returns None on failure (graceful degradation).
+    """
+    oembed_url = "https://www.youtube.com/oembed"
+    params = {"url": url, "format": "json"}
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(oembed_url, params=params)
+            if resp.status_code != 200:
+                logger.warning(f"oEmbed returned status {resp.status_code} for URL: {url}")
+                return None
+            data = resp.json()
+            title = data.get("title")
+            if isinstance(title, str):
+                title = title.strip()
+                return title if title else None
+            return None
+    except Exception as e:
+        logger.warning(f"Failed to fetch YouTube title via oEmbed: {e}")
+        return None
+
 @router.post("/flashcards", response_model=YouTubeFlashcardsResponse)
 async def generate_youtube_flashcards(request: YouTubeFlashcardsRequest):
     """
     Generate flashcards from YouTube video transcript.
     """
     try:
+        # Clean and normalize the URL first
+        clean_url = clean_youtube_url(request.url)
+        logger.info(f"Cleaned YouTube URL: {request.url[:80]}... -> {clean_url[:80]}...")
+        
         # Extract video ID for logging
         from services.youtube_transcript import extract_video_id
-        video_id = extract_video_id(request.url)
+        video_id = extract_video_id(clean_url)
+        
+        if not video_id:
+            raise HTTPException(status_code=400, detail="Invalid YouTube URL: could not extract video ID")
         
         logger.info(f"Processing YouTube flashcards request for video {video_id}")
+        
+        # Fetch real YouTube title via oEmbed
+        video_title = await fetch_youtube_title(clean_url)
+        if video_title:
+            logger.info(f"Fetched YouTube title: {video_title[:80]}...")
+        else:
+            logger.warning(f"Could not fetch YouTube title for video {video_id}")
         
         # Normalize language hints: map all "en-*" to "en"
         normalized_langs = []
@@ -150,10 +192,10 @@ async def generate_youtube_flashcards(request: YouTubeFlashcardsRequest):
         # Remove duplicates while preserving order
         normalized_langs = list(dict.fromkeys(normalized_langs))
         
-        # Get transcript
+        # Get transcript (use cleaned URL)
         try:
             segments, chosen_lang, warnings = get_transcript(
-                video_url=request.url,
+                video_url=clean_url,
                 langs=normalized_langs,
                 allow_auto=request.allow_auto_generated,
                 use_cookies=request.use_cookies,
@@ -260,13 +302,16 @@ async def generate_youtube_flashcards(request: YouTubeFlashcardsRequest):
         # Automatically save cards to deck for parity with PDF flow
         deck_id = None
         try:
-            # Build a friendly label similar to existing /youtube/save endpoint
+            # Build a friendly label using clean URL (not duplicated one)
             label_parts = ["youtube"]
             if video_id:
                 label_parts.append(video_id)
-            if request.url:
-                # keep it short
-                label_parts.append(request.url[:60])
+            if video_title:
+                # Use real title if available
+                label_parts.append(video_title[:60])
+            elif clean_url:
+                # Fallback to clean URL
+                label_parts.append(clean_url[:60])
             source_label = " | ".join(label_parts)
             
             # Create or get deck for this source
@@ -306,12 +351,13 @@ async def generate_youtube_flashcards(request: YouTubeFlashcardsRequest):
         
         return YouTubeFlashcardsResponse(
             video_id=video_id,
-            title=None,  # Could be extracted from YouTube API if needed
-            url=request.url,
+            title=video_title,  # Real YouTube title from oEmbed
+            url=clean_url,  # Cleaned normalized URL
             lang=chosen_lang,
             cards=final_cards,
             warnings=warnings,
-            deck_id=deck_id  # Include deck_id for auto-navigation
+            deck_id=deck_id,  # Include deck_id for auto-navigation
+            videoTitle=video_title  # Alias for frontend compatibility
         )
         
     except HTTPException:

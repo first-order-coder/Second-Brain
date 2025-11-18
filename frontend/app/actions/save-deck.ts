@@ -22,6 +22,14 @@ export async function saveDeck(
     error: userErr,
   } = await supabase.auth.getUser();
 
+  console.log("[api/save-deck] Auth user:", { 
+    userId: user?.id, 
+    userEmail: user?.email,
+    userError: userErr?.message,
+    deckId,
+    sourceType: options?.sourceType,
+  });
+
   if (userErr) {
     console.error("[saveDeck] Failed to fetch user", userErr);
     return { ok: false, error: userErr.message };
@@ -30,50 +38,55 @@ export async function saveDeck(
   if (!user) {
     console.warn("[saveDeck] Attempted save without authenticated user", {
       deckId,
+      sourceType: options?.sourceType,
     });
     return { ok: false, error: "Not authenticated" };
   }
 
   // Upsert deck metadata FIRST (required for foreign key constraint)
-  // IMPORTANT: Only update title if a valid title is provided. Don't overwrite existing good titles with deckId.
-  // Check if deck already exists to preserve existing title if new title is null/empty
-  const { data: existingDeck } = await supabase
-    .from("decks")
-    .select("title")
-    .eq("deck_id", deckId)
-    .single();
-
-  // Use provided title if valid, otherwise preserve existing title, otherwise fallback to deckId
-  let title: string;
-  if (options?.title && options.title.trim() !== "") {
-    // Valid title provided - use it
-    title = options.title.trim();
-  } else if (existingDeck?.title && existingDeck.title.trim() !== "" && existingDeck.title !== deckId) {
-    // No title provided but existing good title exists - preserve it
-    title = existingDeck.title;
-  } else {
-    // No title and no existing title - use deckId as last resort (shouldn't happen with our fixes)
-    title = deckId;
+  // CRITICAL: Use exact title from frontend - no fallbacks, no deckId, no "PDF Deck"
+  // The route handler already validated that title exists, so we can trust it here
+  const title = options?.title?.trim() || "";
+  
+  if (!title) {
+    // This should never happen since route handler validates, but double-check
+    console.error("[saveDeck] Title is empty after trim", {
+      deckId,
+      providedTitle: options?.title,
+      sourceType: options?.sourceType,
+    });
+    return { ok: false, error: "Title is required. Cannot save deck without a valid title." };
   }
   
-  console.log("[saveDeck] Title decision:", { 
-    provided: options?.title, 
-    existing: existingDeck?.title, 
-    final: title,
-    deckId 
+  console.log("[saveDeck] Upserting deck with title:", { 
+    deckId,
+    title,
+    sourceType: options?.sourceType,
+    sourceLabel: options?.sourceLabel,
   });
   
-  const { error: deckError } = await supabase
+  const { data: decksData, error: deckError } = await supabase
     .from("decks")
     .upsert(
       {
         deck_id: deckId,
-        title: title,
+        title: title,  // exact title from frontend
         source_type: options?.sourceType ?? null,
         source_label: options?.sourceLabel ?? null,
       },
       { onConflict: "deck_id" },
-    );
+    )
+    .select("*")
+    .single();
+
+  console.log("[api/save-deck] decks upsert:", { 
+    decksData, 
+    decksError: deckError,
+    deckId,
+    title,
+    sourceType: options?.sourceType,
+    sourceLabel: options?.sourceLabel,
+  });
 
   if (deckError) {
     console.error("[saveDeck] Failed to upsert deck metadata", { deckId, error: deckError });
@@ -81,12 +94,26 @@ export async function saveDeck(
   }
 
   // Insert/update user_decks relationship (after decks row exists)
-  const { error: userDeckError } = await supabase
+  // CRITICAL: Always upsert user_decks for both PDF and YouTube
+  const { data: userDecksData, error: userDeckError } = await supabase
     .from("user_decks")
     .upsert(
-      { user_id: user.id, deck_id: deckId },
+      { 
+        user_id: user.id, 
+        deck_id: deckId,
+        role: 'owner',
+      },
       { onConflict: "user_id,deck_id" },
-    );
+    )
+    .select();
+
+  console.log("[api/save-deck] user_decks upsert:", {
+    userDecksData,
+    userDecksError: userDeckError,
+    userId: user.id,
+    deckId,
+    sourceType: options?.sourceType,
+  });
 
   if (userDeckError) {
     console.error("[saveDeck] Supabase upsert failed", { deckId, error: userDeckError });

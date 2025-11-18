@@ -26,10 +26,6 @@ export default function FlashcardPage() {
   const [flashcardData, setFlashcardData] = useState<FlashcardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  
-  // Get title and source type from URL params (passed from upload flow)
-  const titleFromUrl = searchParams.get('title')
-  const sourceTypeFromUrl = searchParams.get('sourceType')
 
   useEffect(() => {
     fetchFlashcards()
@@ -144,37 +140,52 @@ export default function FlashcardPage() {
 
   // Show flashcards if completed
   if (flashcardData.status === 'completed' && flashcardData.flashcards.length > 0) {
-    // Use title from URL params if available
-    const isYouTube = sourceTypeFromUrl === 'youtube' || pdfId.length > 36 || pdfId.includes('youtube');
+    // Read params from URL (works for both PDF and YouTube)
+    const rawTitle = searchParams.get('title');
+    const sourceType = searchParams.get('sourceType') as string | undefined;
+    const sourceLabel = searchParams.get('sourceLabel') as string | undefined;
     
-    let deckTitle: string | null = null;
-    let sourceType: string = 'pdf';
+    // Handle title (can be string or array from Next.js)
+    const titleFromUrl =
+      typeof rawTitle === "string"
+        ? rawTitle
+        : Array.isArray(rawTitle)
+        ? rawTitle[0]
+        : undefined;
     
-    if (titleFromUrl) {
-      // URL param title is already clean (no extension), but remove any just in case
-      deckTitle = titleFromUrl.replace(/\.[^/.]+$/, "");
-      sourceType = sourceTypeFromUrl || 'pdf';
-      console.log("[FlashcardPage] Using title from URL:", { titleFromUrl, deckTitle, sourceType });
-    } else if (isYouTube) {
-      // For YouTube without URL param, don't overwrite existing title
-      deckTitle = null;
-      sourceType = 'youtube';
-      console.log("[FlashcardPage] YouTube detected but no title in URL params - skipping SaveOnLoad");
-    } else {
-      // For PDF without URL param, don't send title to avoid overwriting existing good title
-      deckTitle = null;
-      sourceType = 'pdf';
-      console.log("[FlashcardPage] PDF detected but no title in URL params - skipping SaveOnLoad");
+    // Clean title (remove extension if any)
+    const deckTitle = titleFromUrl 
+      ? titleFromUrl.replace(/\.[^/.]+$/, "").trim()
+      : undefined;
+    
+    // Warn if PDF detected but no title (this is the log message user mentioned)
+    if (sourceType === "pdf" && !titleFromUrl) {
+      console.warn(
+        "[FlashcardPage] PDF detected but no title in URL params - skipping SaveOnLoad"
+      );
     }
+    
+    // Only save when we have all required data
+    const showSaveOnLoad =
+      !!pdfId && !!deckTitle && !!sourceType && !!sourceLabel;
+    
+    console.log("[FlashcardPage] Params:", {
+      deckId: pdfId,
+      titleFromUrl,
+      deckTitle,
+      sourceType,
+      sourceLabel,
+      showSaveOnLoad,
+    });
     
     return (
       <>
-        {deckTitle && sourceType === 'pdf' && (
-          <SaveOnLoad 
-            deckId={pdfId} 
+        {showSaveOnLoad && (
+          <SaveOnLoad
+            deckId={pdfId}
             title={deckTitle}
-            sourceType={sourceType}
-            sourceLabel={deckTitle}
+            sourceType={sourceType as "pdf" | "youtube"}
+            sourceLabel={sourceLabel}
           />
         )}
         <FlashcardViewer pdfId={pdfId} flashcards={flashcardData.flashcards} />
