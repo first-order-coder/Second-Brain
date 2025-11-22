@@ -1,18 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL?.trim();
-
-function isAbsolute(u?: string | null) {
-  if (!u) return false;
-  try { new URL(u); return true; } catch { return false; }
-}
+import { getApiBase, isAbsoluteUrl } from '@/lib/getApiBase';
 
 export async function GET(req: NextRequest) {
-  if (!isAbsolute(API_BASE)) {
+  let API_BASE: string;
+  try {
+    API_BASE = getApiBase();
+  } catch (error) {
     return NextResponse.json(
       {
-        detail:
-          "NEXT_PUBLIC_API_URL is not set to an absolute URL. Set it to your FastAPI base, e.g., http://localhost:8000 (dev) or http://backend:8000 (Docker).",
+        detail: error instanceof Error ? error.message : "NEXT_PUBLIC_API_BASE_URL is not set.",
+        got: null,
+      },
+      { status: 500 }
+    );
+  }
+  
+  if (!isAbsoluteUrl(API_BASE)) {
+    return NextResponse.json(
+      {
+        detail: "NEXT_PUBLIC_API_BASE_URL is not set to an absolute URL. Set it to your FastAPI base, e.g., http://localhost:8000 (dev) or https://your-backend.onrender.com (prod).",
         got: API_BASE ?? null,
       },
       { status: 500 }

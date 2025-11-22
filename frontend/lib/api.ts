@@ -1,49 +1,28 @@
 import { Summary } from './types';
+import { apiGet, apiPost } from './apiClient';
 
 export async function getSummary(sourceId: string): Promise<Summary> {
-  const res = await fetch(`/api/summaries/${sourceId}`, { 
-    cache: 'no-store' 
-  });
-  if (!res.ok) {
-    if (res.status === 404) {
-      // Return empty summary if not found
+  try {
+    return await apiGet<Summary>(`/summaries/${sourceId}`);
+  } catch (error) {
+    // Return empty summary if not found (404) or other errors
+    if (error instanceof Error && error.message.includes('404')) {
       return {
         summary_id: '',
         source_id: sourceId,
         sentences: []
       };
     }
-    throw new Error('Failed to fetch summary');
+    throw error;
   }
-  return res.json();
 }
 
 export async function refreshSummary(sourceId: string): Promise<{status: string, task_id?: string, summary_id?: string}> {
-  const res = await fetch(`/api/summaries/${sourceId}/refresh`, { 
-    method: 'POST' 
-  });
-  const text = await res.text();
-  
-  if (!res.ok) {
-    console.error('Refresh failed:', res.status, text);
-    let errorMessage = 'Failed to refresh summary';
-    try {
-      const errorData = JSON.parse(text);
-      if (errorData.detail) {
-        errorMessage = errorData.detail;
-      } else if (errorData.error) {
-        errorMessage = errorData.error;
-      }
-    } catch (e) {
-      // Use default error message if parsing fails
-    }
-    throw new Error(errorMessage);
-  }
-  
   try {
-    return JSON.parse(text);
-  } catch (e) {
-    throw new Error('Invalid response from server');
+    return await apiPost<{status: string, task_id?: string, summary_id?: string}>(`/summaries/${sourceId}/refresh`);
+  } catch (error) {
+    console.error('Refresh failed:', error);
+    throw error;
   }
 }
 
@@ -51,12 +30,5 @@ export async function refreshSummary(sourceId: string): Promise<{status: string,
 
 // ============ YouTube ingest helper (additive) ============
 export async function ingestYoutube(url: string) {
-  const res = await fetch('/api/ingest/url', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, kind: 'youtube' })
-  })
-  const text = await res.text()
-  if (!res.ok) throw new Error(text || `Ingest failed: ${res.status}`)
-  return JSON.parse(text)
+  return await apiPost('/ingest/url', { url, kind: 'youtube' });
 }

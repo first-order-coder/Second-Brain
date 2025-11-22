@@ -2,8 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export const runtime = 'nodejs'
 
+import { getApiBase } from '@/lib/getApiBase';
+
 function apiBase() {
-  return process.env.NEXT_PUBLIC_API_URL?.trim() || 'http://localhost:8000'
+  try {
+    return getApiBase();
+  } catch {
+    return 'http://localhost:8000'; // Fallback for development
+  }
 }
 
 async function forwardJSON(path: string, init: RequestInit) {

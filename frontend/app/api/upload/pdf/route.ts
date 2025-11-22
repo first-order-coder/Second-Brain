@@ -3,18 +3,22 @@ import { NextRequest, NextResponse } from "next/server";
 // Force Node runtime for multipart streaming
 export const runtime = "nodejs";
 
-// Absolute FastAPI base (set in .env.local or Compose)
-const API_BASE = process.env.NEXT_PUBLIC_API_URL?.trim();
-
-function isAbsolute(u?: string | null) {
-  if (!u) return false;
-  try { new URL(u!); return true; } catch { return false; }
-}
+import { getApiBase, isAbsoluteUrl } from '@/lib/getApiBase';
 
 export async function POST(req: NextRequest) {
-  if (!isAbsolute(API_BASE)) {
+  let API_BASE: string;
+  try {
+    API_BASE = getApiBase();
+  } catch (error) {
     return NextResponse.json(
-      { detail: "NEXT_PUBLIC_API_URL is not set to an absolute URL (e.g., http://localhost:8000 or http://backend:8000)." },
+      { detail: error instanceof Error ? error.message : "NEXT_PUBLIC_API_BASE_URL is not set." },
+      { status: 500 }
+    );
+  }
+  
+  if (!isAbsoluteUrl(API_BASE)) {
+    return NextResponse.json(
+      { detail: "NEXT_PUBLIC_API_BASE_URL is not set to an absolute URL (e.g., http://localhost:8000 or https://your-backend.onrender.com)." },
       { status: 500 }
     );
   }

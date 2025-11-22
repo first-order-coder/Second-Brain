@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Loader2, CheckCircle, AlertCircle } from 'lucide-react'
+import { apiGet } from '@/lib/apiClient'
 
 interface ProcessingStatusProps {
   pdfId: string
@@ -31,8 +32,7 @@ export default function ProcessingStatus({ pdfId, onComplete, onError }: Process
   useEffect(() => {
     const pollStatus = async () => {
       try {
-        const response = await fetch(`/api/status/${pdfId}`)
-        const data = await response.json()
+        const data = await apiGet<Status>(`/status/${pdfId}`)
         setStatus(data)
 
         if (data.status === 'completed') {

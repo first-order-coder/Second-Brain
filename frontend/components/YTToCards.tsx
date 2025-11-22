@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 // Slider removed - fixed 10 cards for YouTube
 import { Separator } from "@/components/ui/separator";
 import { YouTubeFlashcardsResponse } from "@/lib/types";
+import { apiGet, apiPost, apiPut } from "@/lib/apiClient";
 
 type CardItem = {
   front: string; 
@@ -95,21 +96,20 @@ export default function YTToCards() {
     setCheckingTracks(true);
     setError(null);
     try {
-      const r = await fetch(`/api/youtube/tracks?url=${encodeURIComponent(url)}`);
-      const data = await r.json();
-      if (!r.ok) {
-        setError(data?.detail || "Failed to check tracks.");
-      } else {
-        setTracks(data);
-        // Auto-adjust language hints if no English tracks
-        const hasEnglish = data.tracks.some((t: any) => t.lang.startsWith('en'));
-        if (!hasEnglish && data.tracks.length > 0) {
-          const topLang = data.tracks[0].lang;
-          setLangHint([topLang, "en"]);
-        }
+      const data = await apiGet<{
+        video_id: string;
+        tracks: Array<{lang: string; kind: string}>;
+        gated: boolean;
+      }>(`/youtube/tracks?url=${encodeURIComponent(url)}`);
+      setTracks(data);
+      // Auto-adjust language hints if no English tracks
+      const hasEnglish = data.tracks.some((t: any) => t.lang.startsWith('en'));
+      if (!hasEnglish && data.tracks.length > 0) {
+        const topLang = data.tracks[0].lang;
+        setLangHint([topLang, "en"]);
       }
     } catch (err: any) {
-      setError("Network error checking tracks.");
+      setError(err instanceof Error ? err.message : "Network error checking tracks.");
     } finally {
       setCheckingTracks(false);
     }
@@ -134,90 +134,77 @@ export default function YTToCards() {
         enable_fallback: enableFallback
       };
       
-      const r = await fetch("/api/youtube/flashcards", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+      const data = await apiPost<YouTubeFlashcardsResponse>("/youtube/flashcards", payload);
+      setResp(data);
+      console.log("[YTToCards] onGenerate success:", {
+        deckId: data.deck_id,
+        videoTitle: data.videoTitle || data.title,
+        responseUrl: data.url,
+        cleanUrlFromBackend: data.url,
       });
-      const data = await r.json();
-      if (!r.ok) {
-        if (data?.detail && typeof data.detail === 'object' && data.detail.next_steps) {
-          setError(`${data.detail.detail}. Next steps: ${data.detail.next_steps.join(', ')}`);
-        } else {
-          setError(data?.detail || "Failed to generate flashcards.");
+      
+      // Auto-navigate to deck if deck_id is present (deck parity with PDF flow)
+      if (data?.deck_id) {
+        setLastDeckId(data.deck_id);
+        
+        // Use backend-provided videoTitle or title, fallback to video ID
+        const finalUrl = data.url ?? cleanedUrl;
+        const fallbackTitle = (() => {
+          try {
+            const u = new URL(finalUrl);
+            const v = u.searchParams.get("v");
+            if (v) return `YouTube: ${v}`;
+          } catch {
+            // ignore
+          }
+          return "YouTube deck";
+        })();
+        
+        const deckTitle = (data.videoTitle || data.title || fallbackTitle).trim();
+        
+        // CRITICAL: Ensure we always have a non-empty title (never null/empty)
+        if (!deckTitle || deckTitle.length === 0) {
+          console.error("[YTToCards] No valid title available, using fallback", {
+            deckId: data.deck_id,
+            videoTitle: data.videoTitle,
+            title: data.title,
+            fallbackTitle,
+          });
+          // This should never happen, but if it does, use a descriptive fallback
+          const emergencyFallback = `YouTube: ${data.video_id || data.deck_id.slice(0, 8)}`;
+          console.warn("[YTToCards] Using emergency fallback title:", emergencyFallback);
+          // Don't proceed without a title - this would cause UUID titles
+          setError("Failed to get video title. Please try again.");
+          return;
         }
-      } else {
-        setResp(data);
-        console.log("[YTToCards] onGenerate success:", {
+        
+        console.log("[YTToCards] Using deckTitle:", deckTitle);
+        console.log("[YTToCards] Calling saveDeckSilently for YouTube:", {
           deckId: data.deck_id,
-          videoTitle: data.videoTitle || data.title,
-          responseUrl: data.url,
-          cleanUrlFromBackend: data.url,
+          deckTitle,
+          sourceType: "youtube",
+          sourceLabel: finalUrl,
         });
         
-        // Auto-navigate to deck if deck_id is present (deck parity with PDF flow)
-        if (data?.deck_id) {
-          setLastDeckId(data.deck_id);
-          
-          // Use backend-provided videoTitle or title, fallback to video ID
-          const finalUrl = data.url ?? cleanedUrl;
-          const fallbackTitle = (() => {
-            try {
-              const u = new URL(finalUrl);
-              const v = u.searchParams.get("v");
-              if (v) return `YouTube: ${v}`;
-            } catch {
-              // ignore
-            }
-            return "YouTube deck";
-          })();
-          
-          const deckTitle = (data.videoTitle || data.title || fallbackTitle).trim();
-          
-          // CRITICAL: Ensure we always have a non-empty title (never null/empty)
-          if (!deckTitle || deckTitle.length === 0) {
-            console.error("[YTToCards] No valid title available, using fallback", {
-              deckId: data.deck_id,
-              videoTitle: data.videoTitle,
-              title: data.title,
-              fallbackTitle,
-            });
-            // This should never happen, but if it does, use a descriptive fallback
-            const emergencyFallback = `YouTube: ${data.video_id || data.deck_id.slice(0, 8)}`;
-            console.warn("[YTToCards] Using emergency fallback title:", emergencyFallback);
-            // Don't proceed without a title - this would cause UUID titles
-            setError("Failed to get video title. Please try again.");
-            return;
-          }
-          
-          console.log("[YTToCards] Using deckTitle:", deckTitle);
-          console.log("[YTToCards] Calling saveDeckSilently for YouTube:", {
-            deckId: data.deck_id,
-            deckTitle,
-            sourceType: "youtube",
-            sourceLabel: finalUrl,
-          });
-          
-          // Save deck with proper title and URL (fire-and-forget, SaveOnLoad will also try)
-          saveDeckSilently(data.deck_id, deckTitle, finalUrl);
-          
-          // Pass all needed params to flashcard page
-          const query = new URLSearchParams({
-            title: deckTitle,
-            sourceType: "youtube",
-            sourceLabel: finalUrl,
-          });
-          
-          console.log("[YTToCards] Navigating to flashcard page:", {
-            deckId: data.deck_id,
-            query: query.toString(),
-          });
-          
-          router.push(`/flashcards/${data.deck_id}?${query.toString()}`);
-        }
+        // Save deck with proper title and URL (fire-and-forget, SaveOnLoad will also try)
+        saveDeckSilently(data.deck_id, deckTitle, finalUrl);
+        
+        // Pass all needed params to flashcard page
+        const query = new URLSearchParams({
+          title: deckTitle,
+          sourceType: "youtube",
+          sourceLabel: finalUrl,
+        });
+        
+        console.log("[YTToCards] Navigating to flashcard page:", {
+          deckId: data.deck_id,
+          query: query.toString(),
+        });
+        
+        router.push(`/flashcards/${data.deck_id}?${query.toString()}`);
       }
     } catch (err: any) {
-      setError("Network error or API unavailable.");
+      setError(err instanceof Error ? err.message : "Network error or API unavailable.");
     } finally {
       setLoading(false);
     }
@@ -236,21 +223,13 @@ export default function YTToCards() {
     setSaving(true);
     setError(null);
     try {
-      const r = await fetch("/api/youtube/flashcards", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: resp.url,
-          video_id: resp.video_id,
-          title: resp.title,
-          lang: resp.lang,
-          cards: resp.cards.map(c => ({ front: c.front, back: c.back, cloze: c.cloze, start_s: c.start_s, end_s: c.end_s, evidence: c.evidence, difficulty: c.difficulty, tags: c.tags }))
-        })
+      const data = await apiPut<{ pdf_id: string }>("/youtube/save", {
+        url: resp.url,
+        video_id: resp.video_id,
+        title: resp.title,
+        lang: resp.lang,
+        cards: resp.cards.map(c => ({ front: c.front, back: c.back, cloze: c.cloze, start_s: c.start_s, end_s: c.end_s, evidence: c.evidence, difficulty: c.difficulty, tags: c.tags }))
       });
-      const data = await r.json();
-      if (!r.ok) {
-        setError(data?.detail || "Failed to save deck.");
-      } else {
         // Navigate to viewer for this synthetic deck id
         if (data?.pdf_id) {
           const finalUrl = resp?.url || url;

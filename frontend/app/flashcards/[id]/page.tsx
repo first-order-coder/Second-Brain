@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from 'next/navigation'
 import FlashcardViewer from '@/components/FlashcardViewer'
 import SaveOnLoad from './SaveOnLoad'
 import ProcessingStatus from '@/components/ProcessingStatus'
+import { apiGet } from '@/lib/apiClient'
 
 interface Flashcard {
   id: number
@@ -33,13 +34,7 @@ export default function FlashcardPage() {
 
   const fetchFlashcards = async () => {
     try {
-      const response = await fetch(`/api/flashcards/${pdfId}`)
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch flashcards')
-      }
-      
-      const data = await response.json()
+      const data = await apiGet<FlashcardData>(`/flashcards/${pdfId}`)
       setFlashcardData(data)
       setLoading(false)
     } catch (err) {

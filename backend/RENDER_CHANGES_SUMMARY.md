@@ -383,3 +383,4 @@ CORS_ORIGINS=http://localhost:3000,https://YOUR_VERCEL_PROJECT.vercel.app
 - Environment variables are optional with sensible defaults
 - Existing code paths remain functional
 
+

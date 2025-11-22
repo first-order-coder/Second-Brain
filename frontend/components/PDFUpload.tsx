@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, FileText, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { apiUpload, apiPost, apiGet } from '@/lib/apiClient'
 
 interface PDFUploadProps {
   onUploadSuccess: (pdfId: string, filename?: string | null) => void
@@ -53,24 +54,7 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
       const formData = new FormData()
       formData.append('file', file)
 
-      const response = await fetch('/api/upload/pdf', {
-        method: 'POST',
-        body: formData,
-      })
-
-      if (!response.ok) {
-        let errorMessage = 'Upload failed'
-        try {
-          const error = await response.json()
-          errorMessage = error.detail || error.message || 'Upload failed'
-        } catch (parseError) {
-          errorMessage = `HTTP ${response.status}: ${response.statusText}`
-        }
-        console.error('Upload error:', errorMessage, response.status)
-        throw new Error(errorMessage)
-      }
-
-      const result = await response.json()
+      const result = await apiUpload<{ pdf_id: string; filename: string; status: string }>('/upload-pdf', formData)
       
       setUploadStatus({ 
         type: 'success', 
@@ -97,20 +81,12 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
         message: 'Generating flashcards with AI...' 
       })
 
-      const response = await fetch(`/api/generate-flashcards/${pdfId}`, {
-        method: 'POST',
-      })
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.detail || 'Flashcard generation failed')
-      }
+      await apiPost(`/generate-flashcards/${pdfId}`)
 
       // Poll for completion - capture filename in closure
       const pollStatus = async () => {
         try {
-          const statusResponse = await fetch(`/api/status/${pdfId}`)
-          const statusData = await statusResponse.json()
+          const statusData = await apiGet<{ pdf_id: string; status: string; error_message?: string }>(`/status/${pdfId}`)
           
           if (statusData.status === 'completed') {
             setUploadStatus({ 

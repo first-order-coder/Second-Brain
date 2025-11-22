@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-const API_BASE = process.env.NEXT_PUBLIC_API_URL;
+import { getApiBase } from '@/lib/getApiBase';
 
 export async function POST(req: NextRequest) {
-  if (!API_BASE) {
+  let API_BASE: string;
+  try {
+    API_BASE = getApiBase();
+  } catch (error) {
     return NextResponse.json(
-      { detail: "NEXT_PUBLIC_API_URL is not set. Set it to your FastAPI base (e.g., http://localhost:8000 in local dev or http://backend:8000 in Docker Compose)." },
+      { detail: error instanceof Error ? error.message : "NEXT_PUBLIC_API_BASE_URL is not set." },
       { status: 500 }
     );
   }
@@ -28,9 +31,12 @@ export async function POST(req: NextRequest) {
 
 // Save deck proxy
 export async function PUT(req: NextRequest) {
-  if (!API_BASE) {
+  let API_BASE: string;
+  try {
+    API_BASE = getApiBase();
+  } catch (error) {
     return NextResponse.json(
-      { detail: "NEXT_PUBLIC_API_URL is not set. Set it to your FastAPI base (e.g., http://localhost:8000 in local dev or http://backend:8000 in Docker Compose)." },
+      { detail: error instanceof Error ? error.message : "NEXT_PUBLIC_API_BASE_URL is not set." },
       { status: 500 }
     );
   }
