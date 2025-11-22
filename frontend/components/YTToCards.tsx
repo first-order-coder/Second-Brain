@@ -154,7 +154,7 @@ export default function YTToCards() {
             const u = new URL(finalUrl);
             const v = u.searchParams.get("v");
             if (v) return `YouTube: ${v}`;
-          } catch {
+          } catch (_) {
             // ignore
           }
           return "YouTube deck";
@@ -230,33 +230,32 @@ export default function YTToCards() {
         lang: resp.lang,
         cards: resp.cards.map(c => ({ front: c.front, back: c.back, cloze: c.cloze, start_s: c.start_s, end_s: c.end_s, evidence: c.evidence, difficulty: c.difficulty, tags: c.tags }))
       });
-        // Navigate to viewer for this synthetic deck id
-        if (data?.pdf_id) {
-          const finalUrl = resp?.url || url;
-          const fallbackTitle = (() => {
-            try {
-              const u = new URL(finalUrl);
-              const v = u.searchParams.get("v");
-              if (v) return `YouTube: ${v}`;
-            } catch {
-              // ignore
-            }
-            return "YouTube deck";
-          })();
-          const deckTitle = (resp?.videoTitle || resp?.title || fallbackTitle).trim();
-          saveDeckSilently(data.pdf_id, deckTitle, finalUrl);
-          // Pass all needed params to flashcard page
-          const params = new URLSearchParams({
-            title: deckTitle,
-            sourceType: "youtube",
-            sourceLabel: finalUrl,
-          });
-          window.location.href = `/flashcards/${data.pdf_id}?${params.toString()}`;
-        } else {
-          window.location.href = "/";
-        }
+      // Navigate to viewer for this synthetic deck id
+      if (data?.pdf_id) {
+        const finalUrl = resp?.url || url;
+        const fallbackTitle = (() => {
+          try {
+            const u = new URL(finalUrl);
+            const v = u.searchParams.get("v");
+            if (v) return `YouTube: ${v}`;
+          } catch (_) {
+            // ignore
+          }
+          return "YouTube deck";
+        })();
+        const deckTitle = (resp?.videoTitle || resp?.title || fallbackTitle).trim();
+        saveDeckSilently(data.pdf_id, deckTitle, finalUrl);
+        // Pass all needed params to flashcard page
+        const params = new URLSearchParams({
+          title: deckTitle,
+          sourceType: "youtube",
+          sourceLabel: finalUrl,
+        });
+        window.location.href = `/flashcards/${data.pdf_id}?${params.toString()}`;
+      } else {
+        window.location.href = "/";
       }
-    } catch {
+    } catch (err) {
       setError("Network error while saving deck.");
     } finally {
       setSaving(false);
