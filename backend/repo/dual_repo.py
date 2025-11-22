@@ -105,13 +105,15 @@ def execute_dual_write_sql(sql: str, params: tuple = None) -> List[Any]:
                     # Convert SQLite-style placeholders (?) to PostgreSQL-style named parameters
                     pg_sql, params_dict = convert_sqlite_to_postgres(sql, params)
                     if params_dict:
-                        result = session.execute(text(pg_sql), **params_dict)
+                        result = session.execute(text(pg_sql), params_dict)
                     else:
                         result = session.execute(text(pg_sql))
                     if sql.strip().upper().startswith('SELECT'):
                         results.append(result.fetchall())
                     else:
-                        results.append(result.lastrowid)
+                        # SQLAlchemy 2.x Result doesn't have lastrowid
+                        # For INSERT/UPDATE/DELETE, use rowcount or None
+                        results.append(result.rowcount if hasattr(result, 'rowcount') else None)
             except Exception as e:
                 logger.error(f"Failed to execute SQL on {db_type}: {e}")
                 raise
@@ -164,7 +166,7 @@ def upsert_pdf(pdf_id: str, filename: str, status: str = "uploaded") -> str:
                 else:  # supabase
                     pg_sql, params_dict = convert_sqlite_to_postgres(sql, params)
                     if params_dict:
-                        session.execute(text(pg_sql), **params_dict)
+                        session.execute(text(pg_sql), params_dict)
                     else:
                         session.execute(text(pg_sql))
             except Exception as e:
@@ -191,10 +193,11 @@ def upsert_flashcard(pdf_id: str, question: str, answer: str, card_number: int) 
                 else:  # supabase
                     pg_sql, params_dict = convert_sqlite_to_postgres(sql, params)
                     if params_dict:
-                        result = session.execute(text(pg_sql), **params_dict)
+                        result = session.execute(text(pg_sql), params_dict)
                     else:
                         result = session.execute(text(pg_sql))
-                    result = result.lastrowid
+                    # Note: SQLAlchemy 2.x Result doesn't have lastrowid, use rowcount or RETURNING
+                    result = result.rowcount if result.rowcount else None
             except Exception as e:
                 logger.error(f"Failed to upsert flashcard on {db_type}: {e}")
                 raise
@@ -214,7 +217,7 @@ def get_pdf_status(pdf_id: str) -> Optional[str]:
         else:  # supabase session
             pg_sql, params_dict = convert_sqlite_to_postgres(sql, params)
             if params_dict:
-                result = session.execute(text(pg_sql), **params_dict).fetchone()
+                result = session.execute(text(pg_sql), params_dict).fetchone()
             else:
                 result = session.execute(text(pg_sql)).fetchone()
     
@@ -233,7 +236,7 @@ def get_flashcards(pdf_id: str) -> List[tuple]:
         else:  # supabase session
             pg_sql, params_dict = convert_sqlite_to_postgres(sql, params)
             if params_dict:
-                result = session.execute(text(pg_sql), **params_dict).fetchall()
+                result = session.execute(text(pg_sql), params_dict).fetchall()
             else:
                 result = session.execute(text(pg_sql)).fetchall()
     
@@ -253,7 +256,7 @@ def delete_flashcards(pdf_id: str) -> None:
                 else:  # supabase
                     pg_sql, params_dict = convert_sqlite_to_postgres(sql, params)
                     if params_dict:
-                        session.execute(text(pg_sql), **params_dict)
+                        session.execute(text(pg_sql), params_dict)
                     else:
                         session.execute(text(pg_sql))
             except Exception as e:
