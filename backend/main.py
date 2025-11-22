@@ -35,6 +35,10 @@ logging.basicConfig(
 summary_logger = logging.getLogger("summaries")
 citations_logger = logging.getLogger("citations")
 
+# Database configuration - use environment variable or fallback to SQLite
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///pdf_flashcards.db")
+# For Render/Postgres, DATABASE_URL will be provided. For local dev, use SQLite.
+
 # Import YouTube ingest routers (feature-flagged)
 from routes.ingest import router as ingest_router
 from routes.ingest_debug import router as ingest_debug_router
@@ -54,7 +58,8 @@ THRESH = float(os.getenv("SUMMARY_SUPPORT_THRESHOLD", "0.74"))
 USE_CELERY = os.getenv("USE_CELERY", "false").lower() == "true"
 
 # SQLAlchemy database setup
-engine = create_engine('sqlite:///pdf_flashcards.db')
+# Use DATABASE_URL from environment, fallback to SQLite for local development
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 Base.metadata.create_all(bind=engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -86,9 +91,13 @@ class SummaryOut(BaseModel):
     sentences: List[SentenceOut]
 
 # CORS middleware for frontend communication
+# Get allowed origins from environment variable, with fallback to localhost
+cors_origins_str = os.getenv("CORS_ORIGINS", "http://localhost:3000")
+cors_origins = [origin.strip() for origin in cors_origins_str.split(",") if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Next.js dev server
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -114,32 +123,36 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 # Database initialization
 def init_db():
-    conn = sqlite3.connect("pdf_flashcards.db")
-    cursor = conn.cursor()
-    
-    # Create tables
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS pdfs (
-            id TEXT PRIMARY KEY,
-            filename TEXT NOT NULL,
-            upload_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-            status TEXT DEFAULT 'uploaded'
-        )
-    """)
-    
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS flashcards (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            pdf_id TEXT,
-            question TEXT NOT NULL,
-            answer TEXT NOT NULL,
-            card_number INTEGER,
-            FOREIGN KEY (pdf_id) REFERENCES pdfs(id)
-        )
-    """)
-    
-    conn.commit()
-    conn.close()
+    """Initialize database tables. Works with both SQLite and Postgres."""
+    # Only initialize SQLite-specific tables if using SQLite
+    if DATABASE_URL.startswith("sqlite"):
+        conn = sqlite3.connect("pdf_flashcards.db")
+        cursor = conn.cursor()
+        
+        # Create tables
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pdfs (
+                id TEXT PRIMARY KEY,
+                filename TEXT NOT NULL,
+                upload_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+                status TEXT DEFAULT 'uploaded'
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS flashcards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pdf_id TEXT,
+                question TEXT NOT NULL,
+                answer TEXT NOT NULL,
+                card_number INTEGER,
+                FOREIGN KEY (pdf_id) REFERENCES pdfs(id)
+            )
+        """)
+        
+        conn.commit()
+        conn.close()
+    # For Postgres, tables are managed via migrations or Supabase schema
 
 # -------- YouTube flashcards save endpoint --------
 class SaveYouTubeCard(BaseModel):
@@ -249,14 +262,9 @@ async def upload_pdf(file: UploadFile = File(...)):
 async def generate_flashcards_endpoint(pdf_id: str, background_tasks: BackgroundTasks):
     """Start flashcard generation process"""
     
-    # Check if PDF exists
-    conn = sqlite3.connect("pdf_flashcards.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM pdfs WHERE id = ?", (pdf_id,))
-    pdf_record = cursor.fetchone()
-    conn.close()
-    
-    if not pdf_record:
+    # Check if PDF exists using dual-repo
+    pdf_status = get_pdf_status(pdf_id)
+    if not pdf_status:
         raise HTTPException(status_code=404, detail="PDF not found")
     
     # Update status to processing using dual-write
@@ -378,12 +386,8 @@ async def root():
 # Helper functions for summary endpoints
 def source_exists(source_id: str) -> bool:
     """Check if source exists in database"""
-    conn = sqlite3.connect("pdf_flashcards.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM pdfs WHERE id = ?", (source_id,))
-    result = cursor.fetchone()
-    conn.close()
-    return result is not None
+    status = get_pdf_status(source_id)
+    return status is not None
 
 def enqueue_build_summary(source_id: str, top_k: int, thresh: float, model: str) -> str:
     """Enqueue summary build task to Celery"""
@@ -509,16 +513,47 @@ async def refresh_summary_options(source_id: str):
     """Handle CORS preflight for refresh endpoint"""
     return JSONResponse({"message": "OK"})
 
+@app.get("/health")
+def health():
+    """Simple health check endpoint for Render"""
+    try:
+        # Check database connectivity
+        if DATABASE_URL.startswith("sqlite"):
+            conn = sqlite3.connect("pdf_flashcards.db")
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1")
+            conn.close()
+            db_type = "sqlite"
+        else:
+            # For Postgres, use SQLAlchemy engine
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            db_type = "postgres"
+        
+        return {"status": "ok", "database": db_type}
+    except Exception as e:
+        return JSONResponse({"status": "error", "error": str(e)}, status_code=500)
+
 @app.get("/healthz")
 def healthz():
-    """Basic health check - API up + SQLite rw"""
+    """Basic health check - API up + database rw"""
     try:
-        # Check SQLite connectivity
-        conn = sqlite3.connect("pdf_flashcards.db")
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1")
-        conn.close()
-        return {"ok": True, "database": "sqlite", "status": "healthy"}
+        # Check database connectivity
+        if DATABASE_URL.startswith("sqlite"):
+            conn = sqlite3.connect("pdf_flashcards.db")
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1")
+            conn.close()
+            db_type = "sqlite"
+        else:
+            # For Postgres, use SQLAlchemy engine
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            db_type = "postgres"
+        
+        return {"ok": True, "database": db_type, "status": "healthy"}
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
@@ -529,16 +564,23 @@ def readyz():
     
     status = {"ok": True}
     
-    # Check SQLite
+    # Check primary database
     try:
-        conn = sqlite3.connect("pdf_flashcards.db")
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1")
-        conn.close()
-        status["sqlite"] = "healthy"
+        if DATABASE_URL.startswith("sqlite"):
+            conn = sqlite3.connect("pdf_flashcards.db")
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1")
+            conn.close()
+            status["database"] = "healthy"
+        else:
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                result = conn.execute(text("SELECT 1"))
+                result.fetchone()  # Consume the result
+            status["database"] = "healthy"
     except Exception as e:
         status["ok"] = False
-        status["sqlite"] = f"error: {str(e)}"
+        status["database"] = f"error: {str(e)}"
     
     # Check Supabase if enabled
     if SUPABASE_ENABLED:
@@ -556,7 +598,8 @@ def readyz():
     if USE_CELERY:
         try:
             import redis
-            r = redis.Redis(host='localhost', port=6379, db=0)
+            redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+            r = redis.from_url(redis_url)
             r.ping()
             status["redis"] = "healthy"
         except Exception as e:
@@ -572,11 +615,18 @@ async def health_check():
     """Health check for summary functionality"""
     try:
         # Check database connectivity
-        conn = sqlite3.connect("pdf_flashcards.db")
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM pdfs")
-        pdf_count = cursor.fetchone()[0]
-        conn.close()
+        if DATABASE_URL.startswith("sqlite"):
+            conn = sqlite3.connect("pdf_flashcards.db")
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM pdfs")
+            pdf_count = cursor.fetchone()[0]
+            conn.close()
+        else:
+            # For Postgres, use SQLAlchemy
+            from sqlalchemy import text
+            with SessionLocal() as db:
+                result = db.execute(text("SELECT COUNT(*) FROM pdfs"))
+                pdf_count = result.scalar() or 0
         
         # Check OpenAI key presence (masked)
         openai_key = os.getenv("OPENAI_API_KEY")

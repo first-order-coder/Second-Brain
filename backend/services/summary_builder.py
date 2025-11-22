@@ -20,8 +20,9 @@ load_dotenv()
 # Configure logging
 log = logging.getLogger("citations")
 
-# Database setup
-engine = create_engine('sqlite:///pdf_flashcards.db')
+# Database setup - use environment variable or fallback to SQLite
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///pdf_flashcards.db")
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 Base.metadata.create_all(bind=engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -39,14 +40,16 @@ def get_openai_client():
 
 def get_chunks_for_source(source_id: str) -> List[Dict]:
     """Get chunks for a source"""
-    conn = sqlite3.connect("pdf_flashcards.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT filename FROM pdfs WHERE id = ?", (source_id,))
-    pdf_record = cursor.fetchone()
-    conn.close()
-    
-    if not pdf_record:
-        raise RuntimeError("No chunks found for this source")
+    # Use SQLAlchemy session for database-agnostic access
+    session = SessionLocal()
+    try:
+        from sqlalchemy import text
+        result = session.execute(text("SELECT filename FROM pdfs WHERE id = :id"), {"id": source_id})
+        pdf_record = result.fetchone()
+        if not pdf_record:
+            raise RuntimeError("No chunks found for this source")
+    finally:
+        session.close()
     
     # Extract text from PDF
     file_path = Path("uploads") / f"{source_id}.pdf"

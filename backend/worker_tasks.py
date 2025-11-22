@@ -36,8 +36,9 @@ def get_openai_client():
         raise ValueError("OPENAI_API_KEY environment variable is required")
     return OpenAI(api_key=api_key)
 
-# Database setup
-engine = create_engine('sqlite:///pdf_flashcards.db')
+# Database setup - use environment variable or fallback to SQLite
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///pdf_flashcards.db")
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 Base.metadata.create_all(bind=engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -144,15 +145,18 @@ def build_summary_task(source_id: str):
     print(f"Configuration: threshold={SIMILARITY_THRESHOLD}, max_sentences={MAX_SENTENCES}, max_tokens={MAX_TOKENS}")
     
     try:
-        # Check if source exists
-        conn = sqlite3.connect("pdf_flashcards.db")
-        cursor = conn.cursor()
-        cursor.execute("SELECT filename FROM pdfs WHERE id = ?", (source_id,))
-        pdf_record = cursor.fetchone()
-        
-        if not pdf_record:
-            print(f"PDF not found for source_id: {source_id}")
-            return {"error": "PDF not found"}
+        # Check if source exists using SQLAlchemy
+        session = SessionLocal()
+        try:
+            from sqlalchemy import text
+            result = session.execute(text("SELECT filename FROM pdfs WHERE id = :id"), {"id": source_id})
+            pdf_record = result.fetchone()
+            
+            if not pdf_record:
+                print(f"PDF not found for source_id: {source_id}")
+                return {"error": "PDF not found"}
+        finally:
+            session.close()
         
         # Extract text from PDF
         file_path = Path("uploads") / f"{source_id}.pdf"
