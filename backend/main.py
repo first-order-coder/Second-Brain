@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -19,7 +19,7 @@ import asyncio
 from dotenv import load_dotenv
 from repo.dual_repo import (
     upsert_pdf, upsert_flashcard, get_pdf_status, get_flashcards, 
-    delete_flashcards, execute_dual_write_sql
+    delete_flashcards, execute_dual_write_sql, create_deck_in_supabase, get_pdf_filename
 )
 
 # Load environment variables
@@ -210,10 +210,16 @@ async def startup_event():
     init_db()
 
 @app.post("/upload-pdf")
-async def upload_pdf(file: UploadFile = File(...)):
-    """Upload a PDF file and return its ID"""
+async def upload_pdf(
+    file: UploadFile = File(...),
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id")
+):
+    """Upload a PDF file and return its ID
     
-    print(f"Received upload request: filename={file.filename}, content_type={file.content_type}, size={file.size}")
+    Optional header: X-User-Id - Supabase auth user ID for deck creation
+    """
+    
+    print(f"Received upload request: filename={file.filename}, content_type={file.content_type}, size={file.size}, user_id={x_user_id}")
     
     try:
         # Validate file type (more flexible check)
@@ -250,7 +256,13 @@ async def upload_pdf(file: UploadFile = File(...)):
         
         print(f"Database record created for PDF ID: {pdf_id}")
         
-        return {"pdf_id": pdf_id, "filename": file.filename, "status": "uploaded"}
+        # Store user_id for later use in deck creation
+        # We'll pass it through the generate-flashcards endpoint
+        response_data = {"pdf_id": pdf_id, "filename": file.filename, "status": "uploaded"}
+        if x_user_id:
+            response_data["user_id"] = x_user_id
+        
+        return response_data
         
     except HTTPException:
         raise
@@ -259,8 +271,15 @@ async def upload_pdf(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.post("/generate-flashcards/{pdf_id}")
-async def generate_flashcards_endpoint(pdf_id: str, background_tasks: BackgroundTasks):
-    """Start flashcard generation process"""
+async def generate_flashcards_endpoint(
+    pdf_id: str, 
+    background_tasks: BackgroundTasks,
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id")
+):
+    """Start flashcard generation process
+    
+    Optional header: X-User-Id - Supabase auth user ID for deck creation
+    """
     
     # Check if PDF exists using dual-repo
     pdf_status = get_pdf_status(pdf_id)
@@ -270,13 +289,18 @@ async def generate_flashcards_endpoint(pdf_id: str, background_tasks: Background
     # Update status to processing using dual-write
     execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("processing", pdf_id))
     
-    # Start background task
-    background_tasks.add_task(process_pdf_and_generate_flashcards, pdf_id)
+    # Start background task with user_id
+    background_tasks.add_task(process_pdf_and_generate_flashcards, pdf_id, x_user_id)
     
     return {"message": "Flashcard generation started", "pdf_id": pdf_id}
 
-async def process_pdf_and_generate_flashcards(pdf_id: str):
-    """Background task to process PDF and generate flashcards"""
+async def process_pdf_and_generate_flashcards(pdf_id: str, user_id: Optional[str] = None):
+    """Background task to process PDF and generate flashcards
+    
+    Args:
+        pdf_id: The PDF ID
+        user_id: Optional Supabase auth user ID for deck creation
+    """
     try:
         # Update status to processing using dual-write
         execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("processing", pdf_id))
@@ -305,6 +329,39 @@ async def process_pdf_and_generate_flashcards(pdf_id: str):
         # Update PDF status to completed
         execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("completed", pdf_id))
         print(f"✅ Successfully processed PDF {pdf_id} and generated flashcards")
+        
+        # Create deck in Supabase if user_id is provided
+        if user_id:
+            try:
+                # Get PDF filename for deck title and source_label
+                filename = get_pdf_filename(pdf_id)
+                
+                if filename:
+                    # Remove .pdf extension for title
+                    import re
+                    title = re.sub(r'\.pdf$', '', filename, flags=re.IGNORECASE).strip() or filename
+                    
+                    # Create deck in Supabase
+                    success = create_deck_in_supabase(
+                        deck_id=pdf_id,
+                        title=title,
+                        source_type="pdf",
+                        source_label=filename,
+                        user_id=user_id
+                    )
+                    if success:
+                        logging.info(f"✅ Created deck {pdf_id} in Supabase for user {user_id}")
+                        print(f"✅ Created deck {pdf_id} in Supabase for user {user_id}")
+                    else:
+                        logging.warning(f"⚠️ Failed to create deck {pdf_id} in Supabase (non-fatal)")
+                        print(f"⚠️ Failed to create deck {pdf_id} in Supabase (non-fatal)")
+                else:
+                    logging.warning(f"⚠️ Could not find filename for PDF {pdf_id}, skipping deck creation")
+                    print(f"⚠️ Could not find filename for PDF {pdf_id}, skipping deck creation")
+            except Exception as deck_error:
+                # Log but don't fail the entire processing
+                logging.error(f"Failed to create deck in Supabase for PDF {pdf_id}: {deck_error}")
+                print(f"⚠️ Deck creation failed for PDF {pdf_id} (non-fatal): {deck_error}")
         
     except HTTPException as e:
         # Handle specific HTTP errors from OpenAI using dual-write

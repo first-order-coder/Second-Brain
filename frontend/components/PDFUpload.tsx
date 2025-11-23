@@ -1,10 +1,11 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useState, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, FileText, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiUpload, apiPost, apiGet } from '@/lib/apiClient'
+import { createClient } from '@/lib/supabase/client'
 
 interface PDFUploadProps {
   onUploadSuccess: (pdfId: string, filename?: string | null) => void
@@ -21,6 +22,17 @@ interface UploadStatus {
 export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd }: PDFUploadProps) {
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>({ type: 'idle' })
   const [currentFilename, setCurrentFilename] = useState<string | null>(null)
+  const [userId, setUserId] = useState<string | null>(null)
+
+  // Get user ID from Supabase on mount
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        setUserId(user.id)
+      }
+    })
+  }, [])
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0]
@@ -54,7 +66,13 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
       const formData = new FormData()
       formData.append('file', file)
 
-      const result = await apiUpload<{ pdf_id: string; filename: string; status: string }>('/upload-pdf', formData)
+      // Add user_id header if available
+      const headers: HeadersInit = {}
+      if (userId) {
+        headers['X-User-Id'] = userId
+      }
+
+      const result = await apiUpload<{ pdf_id: string; filename: string; status: string }>('/upload-pdf', formData, { headers })
       
       setUploadStatus({ 
         type: 'success', 
@@ -81,7 +99,13 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
         message: 'Generating flashcards with AI...' 
       })
 
-      await apiPost(`/generate-flashcards/${pdfId}`)
+      // Add user_id header if available
+      const headers: HeadersInit = {}
+      if (userId) {
+        headers['X-User-Id'] = userId
+      }
+
+      await apiPost(`/generate-flashcards/${pdfId}`, undefined, { headers })
 
       // Poll for completion - capture filename in closure
       const pollStatus = async () => {

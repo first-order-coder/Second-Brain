@@ -223,6 +223,25 @@ def get_pdf_status(pdf_id: str) -> Optional[str]:
     
     return result[0] if result else None
 
+def get_pdf_filename(pdf_id: str) -> Optional[str]:
+    """Get PDF filename from primary read database"""
+    sql = "SELECT filename FROM pdfs WHERE id = ?"
+    params = (pdf_id,)
+    
+    with get_read_session() as session:
+        if isinstance(session, sqlite3.Connection):
+            cursor = session.cursor()
+            cursor.execute(sql, params)
+            result = cursor.fetchone()
+        else:  # supabase session
+            pg_sql, params_dict = convert_sqlite_to_postgres(sql, params)
+            if params_dict:
+                result = session.execute(text(pg_sql), params_dict).fetchone()
+            else:
+                result = session.execute(text(pg_sql)).fetchone()
+    
+    return result[0] if result else None
+
 def get_flashcards(pdf_id: str) -> List[tuple]:
     """Get flashcards from primary read database"""
     sql = "SELECT * FROM flashcards WHERE pdf_id = ? ORDER BY card_number"
@@ -262,3 +281,61 @@ def delete_flashcards(pdf_id: str) -> None:
             except Exception as e:
                 logger.error(f"Failed to delete flashcards on {db_type}: {e}")
                 raise
+
+def create_deck_in_supabase(deck_id: str, title: str, source_type: str, source_label: Optional[str], user_id: str) -> bool:
+    """
+    Create a deck entry in Supabase decks and user_decks tables.
+    
+    Args:
+        deck_id: The deck ID (typically the PDF ID)
+        title: Human-readable deck title
+        source_type: Source type (e.g., 'pdf', 'youtube')
+        source_label: Source label (e.g., filename or YouTube title)
+        user_id: Supabase auth user ID (UUID string)
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    if not WRITE_SUPABASE or not SUPABASE_ENABLED:
+        logger.warning("Supabase not enabled, skipping deck creation")
+        return False
+    
+    try:
+        with SessionSupabase() as session:
+            # First, upsert the deck metadata
+            deck_sql = """
+                INSERT INTO public.decks (deck_id, title, source_type, source_label, created_at)
+                VALUES (:deck_id, :title, :source_type, :source_label, NOW())
+                ON CONFLICT (deck_id) DO UPDATE SET
+                    title = EXCLUDED.title,
+                    source_type = EXCLUDED.source_type,
+                    source_label = EXCLUDED.source_label
+            """
+            deck_params = {
+                "deck_id": deck_id,
+                "title": title,
+                "source_type": source_type,
+                "source_label": source_label
+            }
+            session.execute(text(deck_sql), deck_params)
+            
+            # Then, upsert the user_decks relationship
+            user_deck_sql = """
+                INSERT INTO public.user_decks (user_id, deck_id, role, created_at)
+                VALUES (:user_id, :deck_id, 'owner', NOW())
+                ON CONFLICT (user_id, deck_id) DO UPDATE SET
+                    role = EXCLUDED.role
+            """
+            user_deck_params = {
+                "user_id": user_id,
+                "deck_id": deck_id
+            }
+            session.execute(text(user_deck_sql), user_deck_params)
+            
+            session.commit()
+            logger.info(f"Successfully created deck {deck_id} in Supabase for user {user_id}")
+            return True
+            
+    except Exception as e:
+        logger.error(f"Failed to create deck in Supabase for PDF {deck_id}: {e}")
+        return False
