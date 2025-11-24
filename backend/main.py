@@ -1,6 +1,7 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Depends, Header
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
 from typing import List, Optional, Literal
 import os
@@ -47,6 +48,40 @@ from routes.ingest_debug import router as ingest_debug_router
 from routes.youtube_cards import router as youtube_cards_router
 
 app = FastAPI(title="PDF to Flashcards API", version="1.0.0")
+
+# Add exception handler for validation errors to improve logging
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Log validation errors in detail for debugging"""
+    errors = exc.errors()
+    error_details = []
+    for error in errors:
+        error_details.append({
+            "field": ".".join(str(loc) for loc in error.get("loc", [])),
+            "message": error.get("msg"),
+            "type": error.get("type")
+        })
+    
+    # Log the full validation error
+    logging.error(f"Validation error on {request.method} {request.url.path}: {error_details}")
+    
+    # Try to log request body (may have already been consumed)
+    try:
+        body = await request.body()
+        if body:
+            logging.error(f"Request body: {body.decode('utf-8', errors='replace')[:500]}")
+    except Exception as e:
+        logging.warning(f"Could not read request body for logging: {e}")
+    
+    # Return standard FastAPI validation error response
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": errors,
+            "message": f"Validation error: {len(errors)} field(s) invalid. Check 'detail' for specifics."
+        }
+    )
 
 # Feature flag for summary citations
 FEATURE_SUMMARY_CITATIONS = os.getenv('FEATURE_SUMMARY_CITATIONS', 'true').lower() == 'true'

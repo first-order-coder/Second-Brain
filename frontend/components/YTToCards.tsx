@@ -125,14 +125,17 @@ export default function YTToCards() {
       console.log("[YTToCards] Sending request with URL:", cleanedUrl);
       
       // Build payload - fixed 10 cards on server side
+      // IMPORTANT: Field names must match backend Pydantic model (snake_case)
       const payload: any = {
         url: cleanedUrl, // Send cleaned URL
         n_cards: 10, // Fixed value, server will enforce 10
-        langHint,
+        lang_hint: langHint, // Backend expects lang_hint (snake_case), not langHint (camelCase)
         allow_auto_generated: allowAuto,
         use_cookies: useCookies,
         enable_fallback: enableFallback
       };
+      
+      console.log("[YTToCards] Request payload:", payload);
       
       const data = await apiPost<YouTubeFlashcardsResponse>("/youtube/flashcards", payload);
       setResp(data);
@@ -204,7 +207,22 @@ export default function YTToCards() {
         router.push(`/flashcards/${data.deck_id}?${query.toString()}`);
       }
     } catch (err: any) {
-      setError(err instanceof Error ? err.message : "Network error or API unavailable.");
+      // Enhanced error logging for 422 and other errors
+      console.error("[YTToCards] Error generating flashcards:", err);
+      
+      // Try to extract more details from the error
+      let errorMessage = "Network error or API unavailable.";
+      if (err instanceof Error) {
+        errorMessage = err.message;
+        
+        // If the error message contains validation details, log them
+        if (err.message.includes("422") || err.message.includes("Unprocessable")) {
+          console.error("[YTToCards] 422 Validation Error - check backend logs for details");
+          errorMessage = "Invalid request format. Please check the console for details.";
+        }
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

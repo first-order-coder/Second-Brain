@@ -162,6 +162,8 @@ async def generate_youtube_flashcards(request: YouTubeFlashcardsRequest):
     Generate flashcards from YouTube video transcript.
     """
     try:
+        # Log incoming request for debugging
+        logger.info(f"Received YouTube flashcards request: url={request.url[:80]}, n_cards={request.n_cards}, lang_hint={request.lang_hint}, allow_auto={request.allow_auto_generated}, use_cookies={request.use_cookies}, enable_fallback={request.enable_fallback}")
         # Clean and normalize the URL first
         clean_url = clean_youtube_url(request.url)
         logger.info(f"Cleaned YouTube URL: {request.url[:80]}... -> {clean_url[:80]}...")

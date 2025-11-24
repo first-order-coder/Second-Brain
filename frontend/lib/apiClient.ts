@@ -57,11 +57,42 @@ export async function apiFetch(
 
   if (!response.ok) {
     let errorMessage = `API request failed: ${response.status} ${response.statusText}`;
+    let errorData: any = null;
     try {
-      const errorData = await response.json();
-      errorMessage = errorData.detail || errorData.message || errorMessage;
+      errorData = await response.json();
+      // Handle different error response formats
+      if (errorData.detail) {
+        // FastAPI validation errors have detail as array or string
+        if (Array.isArray(errorData.detail)) {
+          // Pydantic validation errors - format them nicely
+          const validationErrors = errorData.detail.map((err: any) => {
+            const field = err.loc?.join('.') || 'unknown';
+            return `${field}: ${err.msg}`;
+          }).join('; ');
+          errorMessage = `Validation error: ${validationErrors}`;
+        } else {
+          errorMessage = errorData.detail;
+        }
+      } else if (errorData.message) {
+        errorMessage = errorData.message;
+      }
+      
+      // Log full error details for debugging (especially 422 errors)
+      if (response.status === 422) {
+        console.error('[apiClient] 422 Validation Error:', {
+          status: response.status,
+          url: url,
+          errorData: errorData,
+          fullResponse: errorData
+        });
+      }
     } catch {
       // If response is not JSON, use the status text
+      console.error('[apiClient] Non-JSON error response:', {
+        status: response.status,
+        statusText: response.statusText,
+        url: url
+      });
     }
     throw new Error(errorMessage);
   }
