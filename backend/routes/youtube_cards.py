@@ -4,7 +4,7 @@ YouTube flashcards router - handles YouTube URL to flashcards conversion.
 import logging
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 import httpx
 
 from services.youtube_transcript import get_transcript, list_transcripts
@@ -35,6 +35,9 @@ class YouTubeTracksResponse(BaseModel):
     gated: bool = Field(default=False, description="Video is age/consent restricted")
 
 class YouTubeFlashcardsRequest(BaseModel):
+    # Pydantic v2 model config - explicitly allow extra fields to be ignored
+    model_config = ConfigDict(extra="ignore")  # Ignore extra fields instead of raising validation error
+    
     url: str = Field(..., description="YouTube URL")
     n_cards: int = Field(default=10, ge=1, le=20, description="Number of cards to generate")
     # Add-ONLY: Optional requested count for enhanced control

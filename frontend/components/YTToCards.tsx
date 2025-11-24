@@ -209,6 +209,7 @@ export default function YTToCards() {
     } catch (err: any) {
       // Enhanced error logging for 422 and other errors
       console.error("[YTToCards] Error generating flashcards:", err);
+      console.error("[YTToCards] Error details (stringified):", JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
       
       // Try to extract more details from the error
       let errorMessage = "Network error or API unavailable.";
@@ -216,10 +217,15 @@ export default function YTToCards() {
         errorMessage = err.message;
         
         // If the error message contains validation details, log them
-        if (err.message.includes("422") || err.message.includes("Unprocessable")) {
-          console.error("[YTToCards] 422 Validation Error - check backend logs for details");
-          errorMessage = "Invalid request format. Please check the console for details.";
+        if (err.message.includes("422") || err.message.includes("Unprocessable") || err.message.includes("Validation error")) {
+          console.error("[YTToCards] 422 Validation Error detected");
+          // The apiClient should have already logged the full error details
+          // Use the error message which should contain validation details
+          errorMessage = err.message || "Invalid request format. Please check the console for details.";
         }
+      } else if (typeof err === 'object' && err !== null) {
+        // Handle non-Error objects
+        errorMessage = JSON.stringify(err);
       }
       
       setError(errorMessage);

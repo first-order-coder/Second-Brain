@@ -79,19 +79,24 @@ export async function apiFetch(
       
       // Log full error details for debugging (especially 422 errors)
       if (response.status === 422) {
-        console.error('[apiClient] 422 Validation Error:', {
+        console.error('[apiClient] 422 Validation Error - Full Details:', JSON.stringify({
           status: response.status,
           url: url,
           errorData: errorData,
-          fullResponse: errorData
-        });
+          detail: errorData.detail,
+          message: errorData.message
+        }, null, 2));
+        
+        // Also log the raw errorData for inspection
+        console.error('[apiClient] 422 Validation Error - Raw errorData:', errorData);
       }
-    } catch {
+    } catch (parseError) {
       // If response is not JSON, use the status text
       console.error('[apiClient] Non-JSON error response:', {
         status: response.status,
         statusText: response.statusText,
-        url: url
+        url: url,
+        parseError: parseError
       });
     }
     throw new Error(errorMessage);
