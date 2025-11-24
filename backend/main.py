@@ -328,9 +328,11 @@ async def process_pdf_and_generate_flashcards(pdf_id: str, user_id: Optional[str
         
         # Update PDF status to completed
         execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("completed", pdf_id))
-        print(f"✅ Successfully processed PDF {pdf_id} and generated flashcards")
+        logging.info(f"✅ Successfully processed PDF {pdf_id} and generated {len(flashcards_data)} flashcards")
+        print(f"✅ Successfully processed PDF {pdf_id} and generated {len(flashcards_data)} flashcards")
         
         # Create deck in Supabase if user_id is provided
+        deck_created = False
         if user_id:
             try:
                 # Get PDF filename for deck title and source_label
@@ -342,6 +344,8 @@ async def process_pdf_and_generate_flashcards(pdf_id: str, user_id: Optional[str
                     title = re.sub(r'\.pdf$', '', filename, flags=re.IGNORECASE).strip() or filename
                     
                     # Create deck in Supabase
+                    # Note: deck_id = pdf_id (reusing the same ID)
+                    logging.info(f"Creating deck in Supabase: deck_id={pdf_id}, title={title}, user_id={user_id}")
                     success = create_deck_in_supabase(
                         deck_id=pdf_id,
                         title=title,
@@ -350,18 +354,30 @@ async def process_pdf_and_generate_flashcards(pdf_id: str, user_id: Optional[str
                         user_id=user_id
                     )
                     if success:
+                        deck_created = True
                         logging.info(f"✅ Created deck {pdf_id} in Supabase for user {user_id}")
                         print(f"✅ Created deck {pdf_id} in Supabase for user {user_id}")
                     else:
-                        logging.warning(f"⚠️ Failed to create deck {pdf_id} in Supabase (non-fatal)")
-                        print(f"⚠️ Failed to create deck {pdf_id} in Supabase (non-fatal)")
+                        logging.error(f"❌ Failed to create deck {pdf_id} in Supabase - create_deck_in_supabase returned False")
+                        print(f"❌ Failed to create deck {pdf_id} in Supabase - create_deck_in_supabase returned False")
                 else:
                     logging.warning(f"⚠️ Could not find filename for PDF {pdf_id}, skipping deck creation")
                     print(f"⚠️ Could not find filename for PDF {pdf_id}, skipping deck creation")
             except Exception as deck_error:
-                # Log but don't fail the entire processing
-                logging.error(f"Failed to create deck in Supabase for PDF {pdf_id}: {deck_error}")
-                print(f"⚠️ Deck creation failed for PDF {pdf_id} (non-fatal): {deck_error}")
+                # Log the full error for debugging
+                logging.error(f"❌ Exception while creating deck in Supabase for PDF {pdf_id}: {deck_error}", exc_info=True)
+                print(f"❌ Deck creation failed for PDF {pdf_id}: {deck_error}")
+                import traceback
+                traceback.print_exc()
+        else:
+            logging.warning(f"⚠️ No user_id provided for PDF {pdf_id}, skipping Supabase deck creation")
+            print(f"⚠️ No user_id provided for PDF {pdf_id}, skipping Supabase deck creation")
+        
+        # Log final status
+        if deck_created:
+            logging.info(f"✅ PDF {pdf_id} processing complete: flashcards generated, deck created in Supabase")
+        else:
+            logging.info(f"✅ PDF {pdf_id} processing complete: flashcards generated, deck NOT created (user_id missing or creation failed)")
         
     except HTTPException as e:
         # Handle specific HTTP errors from OpenAI using dual-write
@@ -386,7 +402,14 @@ async def process_pdf_and_generate_flashcards(pdf_id: str, user_id: Optional[str
 
 @app.get("/status/{pdf_id}")
 async def get_status(pdf_id: str):
-    """Get the processing status of a PDF"""
+    """Get the processing status of a PDF
+    
+    Returns:
+        - pdf_id: The PDF ID
+        - status: Processing status (uploaded, processing, completed, error, etc.)
+        - deck_id: The deck ID (same as pdf_id) when status is 'completed'
+        - error_message: User-friendly error message if status indicates an error
+    """
     
     status = get_pdf_status(pdf_id)
     
@@ -403,6 +426,16 @@ async def get_status(pdf_id: str):
     }
     
     response = {"pdf_id": pdf_id, "status": status}
+    
+    # When completed, include deck_id (which is the same as pdf_id)
+    if status == "completed":
+        response["deck_id"] = pdf_id
+        # Also include deck title if available
+        filename = get_pdf_filename(pdf_id)
+        if filename:
+            import re
+            title = re.sub(r'\.pdf$', '', filename, flags=re.IGNORECASE).strip() or filename
+            response["deck_title"] = title
     
     if status in error_messages:
         response["error_message"] = error_messages[status]

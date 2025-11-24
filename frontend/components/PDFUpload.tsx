@@ -110,21 +110,44 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
       // Poll for completion - capture filename in closure
       const pollStatus = async () => {
         try {
-          const statusData = await apiGet<{ pdf_id: string; status: string; error_message?: string }>(`/status/${pdfId}`)
+          const statusData = await apiGet<{ 
+            pdf_id: string; 
+            status: string; 
+            deck_id?: string;
+            deck_title?: string;
+            error_message?: string 
+          }>(`/status/${pdfId}`)
           
           if (statusData.status === 'completed') {
+            // Use deckId from response if available, otherwise fall back to pdfId
+            const deckId = statusData.deck_id || pdfId
             setUploadStatus({ 
               type: 'success', 
               message: 'Flashcards generated successfully!', 
-              pdfId 
+              pdfId: deckId 
             })
             onUploadEnd()
-            console.log("[PDFUpload] Calling onUploadSuccess with:", { pdfId, filename });
-            setTimeout(() => onUploadSuccess(pdfId, filename), 1000)
+            console.log("[PDFUpload] Processing complete:", { 
+              pdfId, 
+              deckId, 
+              deckTitle: statusData.deck_title || filename,
+              filename 
+            });
+            // Use deckId for navigation (which is the same as pdfId for PDFs)
+            setTimeout(() => onUploadSuccess(deckId, statusData.deck_title || filename), 1000)
           } else if (['error', 'quota_exceeded', 'auth_error', 'timeout', 'service_error'].includes(statusData.status)) {
+            // Use the error_message from backend, which should be user-friendly
+            // If it looks like raw LLM output (contains markdown or is too long), sanitize it
+            let errorMsg = statusData.error_message || 'Failed to generate flashcards. Please try again.'
+            
+            // Sanitize error messages that look like raw LLM output
+            if (errorMsg.length > 200 || errorMsg.includes('```') || errorMsg.includes('First:') || errorMsg.includes('Then:')) {
+              errorMsg = 'Failed to generate flashcards. The AI service returned an invalid response. Please try again.'
+            }
+            
             setUploadStatus({ 
               type: 'error', 
-              message: statusData.error_message || 'Failed to generate flashcards. Please try again.' 
+              message: errorMsg
             })
             onUploadEnd()
           } else {
@@ -134,7 +157,7 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
         } catch (error) {
           setUploadStatus({ 
             type: 'error', 
-            message: 'Failed to check generation status.' 
+            message: error instanceof Error ? error.message : 'Failed to check generation status.' 
           })
           onUploadEnd()
         }
