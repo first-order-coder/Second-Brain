@@ -369,7 +369,13 @@ export default function YTToCards() {
 
   return (
     <UICard className="p-4 space-y-4">
-      {/* Mode selector at the top */}
+      {/* Beta notice for YouTube feature - at the top */}
+      <div className="text-xs text-muted-foreground italic flex items-start gap-1.5">
+        <span className="text-amber-600 dark:text-amber-400">ℹ️</span>
+        <span>YouTube mode is in beta. Some videos may not work due to YouTube caption restrictions.</span>
+      </div>
+
+      {/* Mode selector */}
       <div className="space-y-2">
         <Label>Mode</Label>
         <div className="flex gap-2">
@@ -523,11 +529,6 @@ export default function YTToCards() {
             </Button>
           </div>
         )}
-      </div>
-
-      {/* Beta notice for YouTube feature */}
-      <div className="text-xs text-muted-foreground italic">
-        YouTube mode is in beta. Some videos may not work due to YouTube caption restrictions.
       </div>
 
       {tracks && (

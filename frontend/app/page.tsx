@@ -5,7 +5,6 @@ import { BookOpen, Sparkles, Layers, Upload, FileUp, Brain, Link as LinkIcon, Yo
 import PDFUpload from '@/components/PDFUpload'
 import YTToCards from '@/components/YTToCards'
 import { useRouter } from 'next/navigation'
-import { Badge } from '@/components/ui/badge'
 
 export default function Page() {
   const [isUploading, setIsUploading] = useState(false)
@@ -100,19 +99,14 @@ export default function Page() {
       {/* Hero */}
       <section className="sb-section">
         <div className="mx-auto max-w-6xl px-4 sb-surface-0">
-          <div className="flex items-center gap-3 flex-wrap">
-            <motion.h1
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3 }}
-              className="text-4xl sm:text-5xl font-bold tracking-tight text-slate-900 dark:text-white"
-            >
-              Learn faster. Remember longer.
-            </motion.h1>
-            <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800">
-              Beta
-            </Badge>
-          </div>
+          <motion.h1
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            className="text-4xl sm:text-5xl font-bold tracking-tight text-slate-900 dark:text-white"
+          >
+            Learn faster. Remember longer.
+          </motion.h1>
           <motion.p
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
