@@ -68,6 +68,18 @@ class YouTubeCard(BaseModel):
     difficulty: Optional[str] = Field(None, pattern="^(easy|medium|hard)$")
     tags: List[str] = ["youtube"]
 
+class ManualTranscriptRequest(BaseModel):
+    """Request model for manual transcript flashcard generation"""
+    url: Optional[str] = Field(default=None, description="YouTube URL (optional metadata)")
+    title: Optional[str] = Field(default=None, description="Optional deck title hint")
+    transcript: str = Field(..., description="Raw transcript text (required)")
+
+class ManualTranscriptRequest(BaseModel):
+    """Request model for manual transcript flashcard generation"""
+    url: Optional[str] = Field(default=None, description="YouTube URL (optional metadata)")
+    title: Optional[str] = Field(default=None, description="Optional deck title hint")
+    transcript: str = Field(..., description="Raw transcript text (required)")
+
 class YouTubeFlashcardsResponse(BaseModel):
     video_id: str
     title: Optional[str] = None
@@ -370,6 +382,198 @@ async def generate_youtube_flashcards(request: YouTubeFlashcardsRequest):
     except Exception as e:
         logger.error(f"Unexpected error in YouTube flashcards generation: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.post("/transcript-flashcards", response_model=YouTubeFlashcardsResponse)
+async def generate_flashcards_from_manual_transcript(request: ManualTranscriptRequest):
+    """
+    Generate flashcards from manually pasted transcript text.
+    This endpoint allows users to paste transcript text when automatic YouTube caption fetching fails.
+    """
+    try:
+        # Validate transcript is non-empty
+        transcript_text = request.transcript.strip()
+        if not transcript_text:
+            raise HTTPException(status_code=400, detail="Transcript text is empty.")
+        
+        logger.info(f"Received manual transcript request: url={request.url}, title={request.title}, transcript_length={len(transcript_text)}")
+        
+        # Extract video ID from URL if provided (for metadata)
+        video_id = None
+        clean_url = request.url or ""
+        if request.url:
+            try:
+                from services.youtube_transcript import extract_video_id
+                clean_url = clean_youtube_url(request.url)
+                video_id = extract_video_id(clean_url)
+            except Exception as e:
+                logger.warning(f"Could not extract video ID from URL: {e}")
+        
+        # Use provided title or generate a fallback
+        video_title = request.title
+        if not video_title and video_id:
+            video_title = f"YouTube: {video_id}"
+        elif not video_title:
+            video_title = "YouTube: Manual Transcript"
+        
+        # Process transcript text similar to how YouTube segments are processed
+        # Convert transcript to segments format for consistency
+        # For manual transcripts, we'll treat the entire text as one segment
+        # and then use semantic windows to extract key points
+        
+        from services.cardify import (
+            merge_small_segments,
+            semantic_windows,
+            select_key_points,
+            prepare_excerpts_for_llm,
+            deduplicate_cards,
+            truncate_answer
+        )
+        
+        # Create a simple segment structure from the transcript text
+        # Split by sentences or paragraphs for better processing
+        import re
+        # Split by double newlines (paragraphs) or single newlines (lines)
+        segments = []
+        if "\n\n" in transcript_text:
+            # Paragraph-based splitting
+            paragraphs = transcript_text.split("\n\n")
+            current_time = 0.0
+            for para in paragraphs:
+                para = para.strip()
+                if para:
+                    # Estimate duration: ~150 words per minute, ~2.5 words per second
+                    word_count = len(para.split())
+                    duration = word_count / 2.5
+                    segments.append({
+                        'text': para,
+                        'start': current_time,
+                        'end': current_time + duration
+                    })
+                    current_time += duration
+        else:
+            # Line-based splitting
+            lines = transcript_text.split("\n")
+            current_time = 0.0
+            for line in lines:
+                line = line.strip()
+                if line:
+                    word_count = len(line.split())
+                    duration = max(1.0, word_count / 2.5)  # Minimum 1 second
+                    segments.append({
+                        'text': line,
+                        'start': current_time,
+                        'end': current_time + duration
+                    })
+                    current_time += duration
+        
+        if not segments:
+            raise HTTPException(status_code=400, detail="Could not parse transcript into segments.")
+        
+        # Process segments into semantic windows (same as YouTube flow)
+        merged_segments = merge_small_segments(segments)
+        windows = semantic_windows(merged_segments)
+        
+        if not windows:
+            raise HTTPException(status_code=422, detail="No suitable content windows found in transcript.")
+        
+        # Force exactly 10 cards (same as YouTube flow)
+        target_count = 10
+        
+        # Select key points for flashcard generation
+        key_windows = select_key_points(windows, target_count)
+        
+        if not key_windows:
+            raise HTTPException(status_code=422, detail="No key points selected for flashcard generation.")
+        
+        # Prepare excerpts for LLM
+        excerpts_json = prepare_excerpts_for_llm(key_windows)
+        
+        # Generate flashcards using LLM (same as YouTube flow)
+        try:
+            raw_cards = generate_flashcards_from_excerpts(excerpts_json, target_count, target_count)
+        except Exception as e:
+            logger.error(f"LLM flashcard generation failed for manual transcript: {e}")
+            raise HTTPException(status_code=500, detail="Failed to generate flashcards from transcript.")
+        
+        # Post-process cards
+        processed_cards = []
+        for card in raw_cards:
+            # Ensure timestamps are filled from window data if missing
+            if card.get('start_s') is None or card.get('end_s') is None:
+                # Find matching window and use its timestamps
+                for window in key_windows:
+                    if window['text'] in excerpts_json:  # Simple matching
+                        card['start_s'] = window['start']
+                        card['end_s'] = window['end']
+                        break
+            
+            # Truncate answer if too long
+            card['back'] = truncate_answer(card['back'])
+            
+            # Ensure tags include youtube
+            if 'youtube' not in card.get('tags', []):
+                card['tags'] = card.get('tags', []) + ['youtube']
+            
+            processed_cards.append(YouTubeCard(**card))
+        
+        # Deduplicate cards
+        deduplicated_cards = deduplicate_cards([card.dict() for card in processed_cards])
+        final_cards = [YouTubeCard(**card) for card in deduplicated_cards]
+        
+        # Limit to target count (enforce exactly 10)
+        final_cards = final_cards[:int(target_count)]
+        
+        # Automatically save cards to deck for parity with PDF/YouTube flow
+        deck_id = None
+        try:
+            # Build a friendly label
+            label_parts = ["youtube", "manual"]
+            if video_id:
+                label_parts.append(video_id)
+            if video_title:
+                label_parts.append(video_title[:60])
+            elif clean_url:
+                label_parts.append(clean_url[:60])
+            source_label = " | ".join(label_parts)
+            
+            # Create or get deck for this source
+            deck_id = get_or_create_deck_for_source("pdf_flashcards.db", source_label)
+            
+            # Convert cards to the format expected by attach_cards_to_deck
+            cards_data = []
+            for card in final_cards:
+                cards_data.append({
+                    'front': card.front,
+                    'back': card.back
+                })
+            
+            # Attach cards to the deck
+            attach_cards_to_deck("pdf_flashcards.db", deck_id, cards_data)
+            
+            logger.info(f"Auto-saved {len(final_cards)} manual transcript cards to deck {deck_id}")
+            
+        except Exception as persist_err:
+            # Log but do not break the generation response
+            logger.error(f"Failed to auto-save manual transcript cards to deck: {persist_err}")
+            deck_id = None
+        
+        # Return response in same format as YouTube flashcards endpoint
+        return YouTubeFlashcardsResponse(
+            video_id=video_id or "manual",
+            title=video_title,
+            url=clean_url or "",
+            lang="manual",
+            cards=final_cards,
+            warnings=[],
+            deck_id=deck_id,
+            videoTitle=video_title
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in manual transcript flashcard generation: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to generate flashcards from transcript.")
 
 @router.get("/health")
 async def youtube_health_check():

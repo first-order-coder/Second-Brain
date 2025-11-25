@@ -25,12 +25,14 @@ type CardItem = {
 
 export default function YTToCards() {
   const router = useRouter();
+  const [mode, setMode] = useState<"auto" | "manual">("auto"); // Mode selector: Auto or Manual transcript
   const [url, setUrl] = useState("");
   // Fixed 10 cards for YouTube - no count selector needed
   const [allowAuto, setAllowAuto] = useState(true);
   const [useCookies, setUseCookies] = useState(false);
   const [enableFallback, setEnableFallback] = useState(false);
   const [langHint, setLangHint] = useState<string[]>(["en","en-US","en-GB"]);
+  const [transcriptText, setTranscriptText] = useState(""); // Manual transcript text
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resp, setResp] = useState<YouTubeFlashcardsResponse | null>(null);
@@ -115,6 +117,68 @@ export default function YTToCards() {
     }
   }
 
+  // Helper function to handle successful flashcard generation (shared by auto and manual modes)
+  const handleFlashcardSuccess = useCallback((data: YouTubeFlashcardsResponse, cleanedUrl: string) => {
+    setResp(data);
+    console.log("[YTToCards] Flashcard generation success:", {
+      deckId: data.deck_id,
+      videoTitle: data.videoTitle || data.title,
+      responseUrl: data.url,
+    });
+    
+    // Auto-navigate to deck if deck_id is present (deck parity with PDF flow)
+    if (data?.deck_id) {
+      setLastDeckId(data.deck_id);
+      
+      // Use backend-provided videoTitle or title, fallback to video ID
+      const finalUrl = data.url ?? cleanedUrl;
+      const fallbackTitle = (() => {
+        try {
+          const u = new URL(finalUrl);
+          const v = u.searchParams.get("v");
+          if (v) return `YouTube: ${v}`;
+        } catch (_) {
+          // ignore
+        }
+        return "YouTube deck";
+      })();
+      
+      const deckTitle = (data.videoTitle || data.title || fallbackTitle).trim();
+      
+      // CRITICAL: Ensure we always have a non-empty title (never null/empty)
+      if (!deckTitle || deckTitle.length === 0) {
+        console.error("[YTToCards] No valid title available, using fallback", {
+          deckId: data.deck_id,
+          videoTitle: data.videoTitle,
+          title: data.title,
+          fallbackTitle,
+        });
+        const emergencyFallback = `YouTube: ${data.video_id || data.deck_id.slice(0, 8)}`;
+        console.warn("[YTToCards] Using emergency fallback title:", emergencyFallback);
+        setError("Failed to get video title. Please try again.");
+        return;
+      }
+      
+      console.log("[YTToCards] Using deckTitle:", deckTitle);
+      console.log("[YTToCards] Calling saveDeckSilently for YouTube:", {
+        deckId: data.deck_id,
+        deckTitle,
+        sourceType: "youtube",
+        sourceLabel: finalUrl,
+      });
+      
+      saveDeckSilently(data.deck_id, deckTitle, finalUrl);
+      
+      const query = new URLSearchParams({
+        title: deckTitle,
+        sourceType: "youtube",
+        sourceLabel: finalUrl,
+      });
+      
+      router.push(`/flashcards/${data.deck_id}?${query.toString()}`);
+    }
+  }, [router, saveDeckSilently]);
+
   async function onGenerate() {
     setLoading(true); 
     setError(null); 
@@ -138,74 +202,7 @@ export default function YTToCards() {
       console.log("[YTToCards] Request payload:", payload);
       
       const data = await apiPost<YouTubeFlashcardsResponse>("/youtube/flashcards", payload);
-      setResp(data);
-      console.log("[YTToCards] onGenerate success:", {
-        deckId: data.deck_id,
-        videoTitle: data.videoTitle || data.title,
-        responseUrl: data.url,
-        cleanUrlFromBackend: data.url,
-      });
-      
-      // Auto-navigate to deck if deck_id is present (deck parity with PDF flow)
-      if (data?.deck_id) {
-        setLastDeckId(data.deck_id);
-        
-        // Use backend-provided videoTitle or title, fallback to video ID
-        const finalUrl = data.url ?? cleanedUrl;
-        const fallbackTitle = (() => {
-          try {
-            const u = new URL(finalUrl);
-            const v = u.searchParams.get("v");
-            if (v) return `YouTube: ${v}`;
-          } catch (_) {
-            // ignore
-          }
-          return "YouTube deck";
-        })();
-        
-        const deckTitle = (data.videoTitle || data.title || fallbackTitle).trim();
-        
-        // CRITICAL: Ensure we always have a non-empty title (never null/empty)
-        if (!deckTitle || deckTitle.length === 0) {
-          console.error("[YTToCards] No valid title available, using fallback", {
-            deckId: data.deck_id,
-            videoTitle: data.videoTitle,
-            title: data.title,
-            fallbackTitle,
-          });
-          // This should never happen, but if it does, use a descriptive fallback
-          const emergencyFallback = `YouTube: ${data.video_id || data.deck_id.slice(0, 8)}`;
-          console.warn("[YTToCards] Using emergency fallback title:", emergencyFallback);
-          // Don't proceed without a title - this would cause UUID titles
-          setError("Failed to get video title. Please try again.");
-          return;
-        }
-        
-        console.log("[YTToCards] Using deckTitle:", deckTitle);
-        console.log("[YTToCards] Calling saveDeckSilently for YouTube:", {
-          deckId: data.deck_id,
-          deckTitle,
-          sourceType: "youtube",
-          sourceLabel: finalUrl,
-        });
-        
-        // Save deck with proper title and URL (fire-and-forget, SaveOnLoad will also try)
-        saveDeckSilently(data.deck_id, deckTitle, finalUrl);
-        
-        // Pass all needed params to flashcard page
-        const query = new URLSearchParams({
-          title: deckTitle,
-          sourceType: "youtube",
-          sourceLabel: finalUrl,
-        });
-        
-        console.log("[YTToCards] Navigating to flashcard page:", {
-          deckId: data.deck_id,
-          query: query.toString(),
-        });
-        
-        router.push(`/flashcards/${data.deck_id}?${query.toString()}`);
-      }
+      handleFlashcardSuccess(data, cleanedUrl);
     } catch (err: any) {
       // Enhanced error logging for 422 and other errors
       console.error("[YTToCards] Error generating flashcards:", err);
@@ -216,15 +213,84 @@ export default function YTToCards() {
       if (err instanceof Error) {
         errorMessage = err.message;
         
+        // Check if error suggests manual mode might help
+        const errorLower = errorMessage.toLowerCase();
+        if (errorLower.includes("no transcript") || 
+            errorLower.includes("transcript") && (errorLower.includes("unavailable") || errorLower.includes("not available")) ||
+            errorLower.includes("blocking") ||
+            errorLower.includes("age/consent") ||
+            errorLower.includes("restricted")) {
+          errorMessage = `${errorMessage} You can try the Manual transcript mode by pasting the transcript yourself.`;
+        }
+        
         // If the error message contains validation details, log them
         if (err.message.includes("422") || err.message.includes("Unprocessable") || err.message.includes("Validation error")) {
           console.error("[YTToCards] 422 Validation Error detected");
-          // The apiClient should have already logged the full error details
-          // Use the error message which should contain validation details
           errorMessage = err.message || "Invalid request format. Please check the console for details.";
         }
       } else if (typeof err === 'object' && err !== null) {
         // Handle non-Error objects
+        errorMessage = JSON.stringify(err);
+      }
+      
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onGenerateFromTranscript() {
+    // Validate transcript text
+    const trimmedTranscript = transcriptText.trim();
+    if (!trimmedTranscript) {
+      setError("Please paste transcript text before generating flashcards.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setResp(null);
+    
+    try {
+      // Clean URL if provided (optional metadata)
+      const cleanedUrl = url ? cleanYoutubeUrl(url) : null;
+      
+      // Try to extract video title from URL if available
+      let videoTitleGuess: string | null = null;
+      if (cleanedUrl) {
+        try {
+          const u = new URL(cleanedUrl);
+          const v = u.searchParams.get("v");
+          if (v) {
+            videoTitleGuess = `YouTube: ${v}`;
+          }
+        } catch (_) {
+          // ignore
+        }
+      }
+      
+      const payload = {
+        url: cleanedUrl,
+        title: videoTitleGuess,
+        transcript: trimmedTranscript,
+      };
+      
+      console.log("[YTToCards] Sending manual transcript request:", {
+        url: cleanedUrl,
+        title: videoTitleGuess,
+        transcriptLength: trimmedTranscript.length,
+      });
+      
+      const data = await apiPost<YouTubeFlashcardsResponse>("/youtube/transcript-flashcards", payload);
+      handleFlashcardSuccess(data, cleanedUrl || "");
+    } catch (err: any) {
+      console.error("[YTToCards] Error generating flashcards from transcript:", err);
+      console.error("[YTToCards] Error details (stringified):", JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
+      
+      let errorMessage = "Failed to generate flashcards from transcript.";
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (typeof err === 'object' && err !== null) {
         errorMessage = JSON.stringify(err);
       }
       
@@ -288,8 +354,35 @@ export default function YTToCards() {
 
   return (
     <UICard className="p-4 space-y-4">
+      {/* Mode selector at the top */}
       <div className="space-y-2">
-        <Label htmlFor="yt-url">Paste YouTube URL</Label>
+        <Label>Mode</Label>
+        <div className="flex gap-2">
+          <Button
+            variant={mode === "auto" ? "default" : "outline"}
+            onClick={() => setMode("auto")}
+            className="flex-1"
+          >
+            Auto (from YouTube captions)
+          </Button>
+          <Button
+            variant={mode === "manual" ? "default" : "outline"}
+            onClick={() => setMode("manual")}
+            className="flex-1"
+          >
+            Manual transcript
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {mode === "auto" 
+            ? "Automatically fetch captions from YouTube and generate flashcards."
+            : "Paste transcript text manually when automatic caption fetching fails."}
+        </p>
+      </div>
+
+      {/* URL input - visible in both modes */}
+      <div className="space-y-2">
+        <Label htmlFor="yt-url">Paste YouTube URL {mode === "manual" && "(optional)"}</Label>
         <Input
           id="yt-url"
           placeholder="https://youtu.be/VIDEO_ID or https://www.youtube.com/watch?v=VIDEO_ID"
@@ -298,68 +391,130 @@ export default function YTToCards() {
           onPaste={onPasteLink}
         />
         <p className="text-xs text-muted-foreground">
-          Paste a link, then click "Generate Flashcards". This will create <strong>10</strong> flashcards.
+          {mode === "auto" 
+            ? "Paste a link, then click 'Generate Flashcards'. This will create 10 flashcards."
+            : "Optional: Paste the YouTube URL for reference (helps with deck metadata)."}
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Info card about flashcard count */}
-        <UICard className="p-3 space-y-3">
-          <div className="text-sm font-medium mb-1">Flashcard count</div>
-          <div className="text-sm text-muted-foreground">
-            Always generates <span className="font-semibold">10</span> cards for YouTube.
-          </div>
-          <div className="text-xs text-muted-foreground mt-2">
-            Count control removed for MVP reliability.
-          </div>
-        </UICard>
+      {/* Options section - only show in Auto mode */}
+      {mode === "auto" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Info card about flashcard count */}
+          <UICard className="p-3 space-y-3">
+            <div className="text-sm font-medium mb-1">Flashcard count</div>
+            <div className="text-sm text-muted-foreground">
+              Always generates <span className="font-semibold">10</span> cards for YouTube.
+            </div>
+            <div className="text-xs text-muted-foreground mt-2">
+              Count control removed for MVP reliability.
+            </div>
+          </UICard>
 
-        {/* Options card */}
-        <UICard className="p-3 space-y-3">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="auto">Allow auto-generated captions</Label>
-            <Switch id="auto" checked={allowAuto} onCheckedChange={setAllowAuto}/>
-          </div>
-          <div className="flex items-center justify-between">
-            <Label htmlFor="cookies">Use cookies (consent/age gate)</Label>
-            <Switch id="cookies" checked={useCookies} onCheckedChange={setUseCookies}/>
-          </div>
-          <div className="flex items-center justify-between">
-            <Label htmlFor="fallback">Enable yt-dlp fallback</Label>
-            <Switch id="fallback" checked={enableFallback} onCheckedChange={setEnableFallback}/>
-          </div>
-          {/* Optional: simple language selector */}
-          <div className="pt-2">
-            <Label className="text-sm">Languages (priority order)</Label>
-            <Input
-              className="mt-1"
-              value={langHint.join(",")}
-              onChange={(e)=>setLangHint(e.target.value.split(",").map(s=>s.trim()).filter(Boolean))}
-              placeholder="en,en-US,en-GB"
-            />
-            <p className="text-xs text-muted-foreground">Comma-separated codes; en-* maps to en internally.</p>
-          </div>
-        </UICard>
-      </div>
+          {/* Options card */}
+          <UICard className="p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="auto">Allow auto-generated captions</Label>
+              <Switch id="auto" checked={allowAuto} onCheckedChange={setAllowAuto}/>
+            </div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="cookies">Use cookies (consent/age gate)</Label>
+              <Switch id="cookies" checked={useCookies} onCheckedChange={setUseCookies}/>
+            </div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="fallback">Enable yt-dlp fallback</Label>
+              <Switch id="fallback" checked={enableFallback} onCheckedChange={setEnableFallback}/>
+            </div>
+            {/* Optional: simple language selector */}
+            <div className="pt-2">
+              <Label className="text-sm">Languages (priority order)</Label>
+              <Input
+                className="mt-1"
+                value={langHint.join(",")}
+                onChange={(e)=>setLangHint(e.target.value.split(",").map(s=>s.trim()).filter(Boolean))}
+                placeholder="en,en-US,en-GB"
+              />
+              <p className="text-xs text-muted-foreground">Comma-separated codes; en-* maps to en internally.</p>
+            </div>
+          </UICard>
+        </div>
+      )}
+
+      {/* Manual transcript textarea - only show in Manual mode */}
+      {mode === "manual" && (
+        <div className="space-y-2">
+          <Label htmlFor="transcript-text">Transcript text</Label>
+          <textarea
+            id="transcript-text"
+            className="flex min-h-[200px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-y"
+            placeholder="Paste the transcript text here. You can copy it from YouTube's transcript feature or any other source."
+            value={transcriptText}
+            onChange={(e) => setTranscriptText(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Paste the full transcript text. The system will automatically process it and generate 10 flashcards.
+          </p>
+        </div>
+      )}
 
       <div className="space-y-2">
         <div className="flex gap-2">
-          <Button onClick={onGenerate} disabled={!canGenerate || loading}>
-            {loading ? "Generating…" : "Generate Flashcards"}
-          </Button>
-          <Button 
-            variant="outline" 
-            onClick={onCheckTracks} 
-            disabled={!canGenerate || checkingTracks}
-          >
-            {checkingTracks ? "Checking…" : "Check Captions"}
-          </Button>
+          {mode === "auto" ? (
+            <>
+              <Button onClick={onGenerate} disabled={!canGenerate || loading}>
+                {loading ? "Generating…" : "Generate Flashcards"}
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={onCheckTracks} 
+                disabled={!canGenerate || checkingTracks}
+              >
+                {checkingTracks ? "Checking…" : "Check Captions"}
+              </Button>
+            </>
+          ) : (
+            <Button 
+              onClick={onGenerateFromTranscript} 
+              disabled={!transcriptText.trim() || loading}
+              className="w-full"
+            >
+              {loading ? "Generating…" : "Generate from transcript"}
+            </Button>
+          )}
         </div>
-        <p className="text-xs text-muted-foreground">
-          YouTube generation creates <span className="font-medium">10</span> flashcards by default.
-          (Count control removed for MVP reliability.)
-        </p>
-        {error && <div className="text-sm text-red-600 p-2 bg-red-50 rounded">{error}</div>}
+        {mode === "auto" && (
+          <p className="text-xs text-muted-foreground">
+            YouTube generation creates <span className="font-medium">10</span> flashcards by default.
+            (Count control removed for MVP reliability.)
+          </p>
+        )}
+        {error && (
+          <div className="text-sm text-red-600 p-2 bg-red-50 rounded">
+            {error}
+            {mode === "auto" && (error.toLowerCase().includes("no transcript") || 
+                                 error.toLowerCase().includes("transcript") && error.toLowerCase().includes("unavailable") ||
+                                 error.toLowerCase().includes("blocking")) && (
+              <div className="mt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setMode("manual");
+                    setError(null);
+                    // Scroll to transcript textarea
+                    setTimeout(() => {
+                      const textarea = document.getElementById("transcript-text");
+                      textarea?.scrollIntoView({ behavior: "smooth", block: "center" });
+                      textarea?.focus();
+                    }, 100);
+                  }}
+                >
+                  Switch to Manual transcript mode
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
         
         {/* Persistent View Flashcards button for deck parity */}
         {lastDeckId && (
