@@ -4,8 +4,9 @@ import { useCallback, useState, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, FileText, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { apiUpload, apiPost, apiGet } from '@/lib/apiClient'
+import { apiUpload, apiPost, apiGet, ApiError } from '@/lib/apiClient'
 import { createClient } from '@/lib/supabase/client'
+import { ErrorAlert } from '@/components/ui/ErrorAlert'
 
 interface PDFUploadProps {
   onUploadSuccess: (pdfId: string, filename?: string | null) => void
@@ -17,6 +18,7 @@ interface UploadStatus {
   type: 'idle' | 'uploading' | 'success' | 'error'
   message?: string
   pdfId?: string
+  details?: string[]
 }
 
 export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd }: PDFUploadProps) {
@@ -166,9 +168,31 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
       pollStatus()
       
     } catch (error) {
+      let errorMessage = 'Generation failed';
+      let errorDetails: string[] | undefined = undefined;
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        
+        // Check if error has nextSteps (from ApiError)
+        if ('nextSteps' in error && Array.isArray(error.nextSteps)) {
+          errorDetails = error.nextSteps;
+        }
+        
+        // Provide helpful details for common generation errors
+        if (errorMessage.includes('quota') || errorMessage.includes('429')) {
+          errorDetails = ['AI service quota exceeded', 'Please try again later or contact support'];
+        } else if (errorMessage.includes('timeout') || errorMessage.includes('504')) {
+          errorDetails = ['The request took too long', 'Please try again with a smaller PDF'];
+        } else if (errorMessage.includes('auth') || errorMessage.includes('401')) {
+          errorDetails = ['AI service authentication failed', 'Please contact support'];
+        }
+      }
+      
       setUploadStatus({ 
         type: 'error', 
-        message: error instanceof Error ? error.message : 'Generation failed' 
+        message: errorMessage,
+        details: errorDetails
       })
       onUploadEnd()
     }
@@ -260,20 +284,33 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
 
       <AnimatePresence>
         {uploadStatus.message && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className={`mt-4 p-3 rounded-lg text-sm text-center ${
-              uploadStatus.type === 'success' 
-                ? 'bg-green-100 text-green-700' 
-                : uploadStatus.type === 'error'
-                ? 'bg-red-100 text-red-700'
-                : 'bg-blue-100 text-blue-700'
-            }`}
-          >
-            {uploadStatus.message}
-          </motion.div>
+          uploadStatus.type === 'error' ? (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="mt-4"
+            >
+              <ErrorAlert
+                title="PDF upload failed"
+                message={uploadStatus.message}
+                details={uploadStatus.details}
+              />
+            </motion.div>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className={`mt-4 p-3 rounded-lg text-sm text-center ${
+                uploadStatus.type === 'success' 
+                  ? 'bg-green-100 text-green-700' 
+                  : 'bg-blue-100 text-blue-700'
+              }`}
+            >
+              {uploadStatus.message}
+            </motion.div>
+          )
         )}
       </AnimatePresence>
 

@@ -39,6 +39,17 @@ function getApiUrl(path: string): string {
 }
 
 /**
+ * Standard API error structure
+ */
+export type ApiError = {
+  status: number;
+  url: string;
+  message: string;
+  nextSteps?: string[];
+  raw?: any;
+};
+
+/**
  * Base fetch function for API calls
  * Works in both client components and server components/actions
  */
@@ -58,48 +69,87 @@ export async function apiFetch(
   if (!response.ok) {
     let errorMessage = `API request failed: ${response.status} ${response.statusText}`;
     let errorData: any = null;
+    let nextSteps: string[] | undefined = undefined;
+    
     try {
       errorData = await response.json();
+      
       // Handle different error response formats
       if (errorData.detail) {
-        // FastAPI validation errors have detail as array or string
-        if (Array.isArray(errorData.detail)) {
+        // Check if detail is an object with nested detail and next_steps
+        if (typeof errorData.detail === 'object' && !Array.isArray(errorData.detail)) {
+          if (errorData.detail.detail) {
+            errorMessage = errorData.detail.detail;
+          } else if (typeof errorData.detail === 'string') {
+            errorMessage = errorData.detail;
+          }
+          
+          // Extract next_steps if available
+          if (errorData.detail.next_steps && Array.isArray(errorData.detail.next_steps)) {
+            nextSteps = errorData.detail.next_steps;
+          }
+        } else if (Array.isArray(errorData.detail)) {
           // Pydantic validation errors - format them nicely
           const validationErrors = errorData.detail.map((err: any) => {
             const field = err.loc?.join('.') || 'unknown';
             return `${field}: ${err.msg}`;
           }).join('; ');
           errorMessage = `Validation error: ${validationErrors}`;
-        } else {
+        } else if (typeof errorData.detail === 'string') {
           errorMessage = errorData.detail;
         }
       } else if (errorData.message) {
         errorMessage = errorData.message;
       }
       
-      // Log full error details for debugging (especially 422 errors)
-      if (response.status === 422) {
-        console.error('[apiClient] 422 Validation Error - Full Details:', JSON.stringify({
-          status: response.status,
-          url: url,
-          errorData: errorData,
-          detail: errorData.detail,
-          message: errorData.message
-        }, null, 2));
-        
-        // Also log the raw errorData for inspection
-        console.error('[apiClient] 422 Validation Error - Raw errorData:', errorData);
-      }
+      // Build standard error object
+      const apiError: ApiError = {
+        status: response.status,
+        url: url,
+        message: errorMessage,
+        nextSteps: nextSteps,
+        raw: errorData
+      };
+      
+      // Log concise but helpful error
+      console.error('[apiClient] Error', {
+        status: apiError.status,
+        url: apiError.url,
+        message: apiError.message,
+        nextSteps: apiError.nextSteps,
+        raw: apiError.raw
+      });
+      
+      // Throw error with extended properties
+      const err = new Error(errorMessage) as Error & ApiError;
+      err.status = apiError.status;
+      err.url = apiError.url;
+      err.nextSteps = apiError.nextSteps;
+      err.raw = apiError.raw;
+      throw err;
+      
     } catch (parseError) {
       // If response is not JSON, use the status text
-      console.error('[apiClient] Non-JSON error response:', {
+      const apiError: ApiError = {
         status: response.status,
-        statusText: response.statusText,
         url: url,
+        message: errorMessage,
+        raw: { statusText: response.statusText }
+      };
+      
+      console.error('[apiClient] Non-JSON error response:', {
+        status: apiError.status,
+        statusText: response.statusText,
+        url: apiError.url,
         parseError: parseError
       });
+      
+      const err = new Error(errorMessage) as Error & ApiError;
+      err.status = apiError.status;
+      err.url = apiError.url;
+      err.raw = apiError.raw;
+      throw err;
     }
-    throw new Error(errorMessage);
   }
 
   return response;

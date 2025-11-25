@@ -10,7 +10,8 @@ import { Switch } from "@/components/ui/switch";
 // Slider removed - fixed 10 cards for YouTube
 import { Separator } from "@/components/ui/separator";
 import { YouTubeFlashcardsResponse } from "@/lib/types";
-import { apiGet, apiPost, apiPut } from "@/lib/apiClient";
+import { apiGet, apiPost, apiPut, ApiError } from "@/lib/apiClient";
+import { ErrorAlert } from "@/components/ui/ErrorAlert";
 
 type CardItem = {
   front: string; 
@@ -35,6 +36,7 @@ export default function YTToCards() {
   const [transcriptText, setTranscriptText] = useState(""); // Manual transcript text
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<string[] | undefined>(undefined);
   const [resp, setResp] = useState<YouTubeFlashcardsResponse | null>(null);
   const [lastDeckId, setLastDeckId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -208,32 +210,35 @@ export default function YTToCards() {
       console.error("[YTToCards] Error generating flashcards:", err);
       console.error("[YTToCards] Error details (stringified):", JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
       
-      // Try to extract more details from the error
+      // Extract error message and nextSteps from ApiError
       let errorMessage = "Network error or API unavailable.";
+      let nextSteps: string[] | undefined = undefined;
+      
       if (err instanceof Error) {
         errorMessage = err.message;
         
-        // Check if error suggests manual mode might help
-        const errorLower = errorMessage.toLowerCase();
-        if (errorLower.includes("no transcript") || 
-            errorLower.includes("transcript") && (errorLower.includes("unavailable") || errorLower.includes("not available")) ||
-            errorLower.includes("blocking") ||
-            errorLower.includes("age/consent") ||
-            errorLower.includes("restricted")) {
-          errorMessage = `${errorMessage} You can try the Manual transcript mode by pasting the transcript yourself.`;
+        // Check if error has nextSteps (from ApiError)
+        if ('nextSteps' in err && Array.isArray(err.nextSteps)) {
+          nextSteps = err.nextSteps;
         }
         
-        // If the error message contains validation details, log them
-        if (err.message.includes("422") || err.message.includes("Unprocessable") || err.message.includes("Validation error")) {
-          console.error("[YTToCards] 422 Validation Error detected");
-          errorMessage = err.message || "Invalid request format. Please check the console for details.";
+        // If no nextSteps from API, check if error suggests manual mode might help
+        if (!nextSteps) {
+          const errorLower = errorMessage.toLowerCase();
+          if (errorLower.includes("no transcript") || 
+              (errorLower.includes("transcript") && (errorLower.includes("unavailable") || errorLower.includes("not available"))) ||
+              errorLower.includes("blocking") ||
+              errorLower.includes("age/consent") ||
+              errorLower.includes("restricted")) {
+            nextSteps = ["Switch to Manual transcript mode and paste the transcript yourself"];
+          }
         }
       } else if (typeof err === 'object' && err !== null) {
-        // Handle non-Error objects
         errorMessage = JSON.stringify(err);
       }
       
       setError(errorMessage);
+      setErrorDetails(nextSteps);
     } finally {
       setLoading(false);
     }
@@ -243,12 +248,14 @@ export default function YTToCards() {
     // Validate transcript text
     const trimmedTranscript = transcriptText.trim();
     if (!trimmedTranscript) {
-      setError("Please paste transcript text before generating flashcards.");
+      setError("Transcript text is empty.");
+      setErrorDetails(["Paste or type some content in the transcript textarea before generating"]);
       return;
     }
 
     setLoading(true);
     setError(null);
+    setErrorDetails(undefined);
     setResp(null);
     
     try {
@@ -288,13 +295,21 @@ export default function YTToCards() {
       console.error("[YTToCards] Error details (stringified):", JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
       
       let errorMessage = "Failed to generate flashcards from transcript.";
+      let nextSteps: string[] | undefined = undefined;
+      
       if (err instanceof Error) {
         errorMessage = err.message;
+        
+        // Check if error has nextSteps (from ApiError)
+        if ('nextSteps' in err && Array.isArray(err.nextSteps)) {
+          nextSteps = err.nextSteps;
+        }
       } else if (typeof err === 'object' && err !== null) {
         errorMessage = JSON.stringify(err);
       }
       
       setError(errorMessage);
+      setErrorDetails(nextSteps);
     } finally {
       setLoading(false);
     }
@@ -489,31 +504,11 @@ export default function YTToCards() {
           </p>
         )}
         {error && (
-          <div className="text-sm text-red-600 p-2 bg-red-50 rounded">
-            {error}
-            {mode === "auto" && (error.toLowerCase().includes("no transcript") || 
-                                 error.toLowerCase().includes("transcript") && error.toLowerCase().includes("unavailable") ||
-                                 error.toLowerCase().includes("blocking")) && (
-              <div className="mt-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setMode("manual");
-                    setError(null);
-                    // Scroll to transcript textarea
-                    setTimeout(() => {
-                      const textarea = document.getElementById("transcript-text");
-                      textarea?.scrollIntoView({ behavior: "smooth", block: "center" });
-                      textarea?.focus();
-                    }, 100);
-                  }}
-                >
-                  Switch to Manual transcript mode
-                </Button>
-              </div>
-            )}
-          </div>
+          <ErrorAlert
+            title={mode === "auto" ? "Couldn't generate flashcards" : "Transcript processing failed"}
+            message={error}
+            details={errorDetails}
+          />
         )}
         
         {/* Persistent View Flashcards button for deck parity */}
@@ -528,6 +523,11 @@ export default function YTToCards() {
             </Button>
           </div>
         )}
+      </div>
+
+      {/* Beta notice for YouTube feature */}
+      <div className="text-xs text-muted-foreground italic">
+        YouTube mode is in beta. Some videos may not work due to YouTube caption restrictions.
       </div>
 
       {tracks && (
