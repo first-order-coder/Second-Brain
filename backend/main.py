@@ -477,9 +477,16 @@ async def get_status(pdf_id: str):
     
     return response
 
-@app.get("/flashcards/{deck_id}")
+@app.get("/flashcards/{pdf_id}")
 async def get_flashcards_endpoint(pdf_id: str):
-    """Get all flashcards for a PDF"""
+    """
+    Get all flashcards for a source (PDF or YouTube), identified by pdf_id.
+
+    NOTE: pdf_id comes from the PATH segment `/flashcards/{pdf_id}`, not from a query
+    parameter. This aligns with the Next.js frontend, which calls `/flashcards/<id>`
+    where `<id>` is the same value stored in `pdfs.id` and `flashcards.pdf_id`,
+    and used as `deck_id` in Supabase.
+    """
     
     # Get PDF status
     pdf_status = get_pdf_status(pdf_id)
