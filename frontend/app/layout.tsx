@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import Header from "@/components/app/Header";
+import { FeedbackButton } from "@/components/feedback-button";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -27,6 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               © {new Date().getFullYear()} Second Brain
             </div>
           </footer>
+          <FeedbackButton />
         </ThemeProvider>
       </body>
     </html>

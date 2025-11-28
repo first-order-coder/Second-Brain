@@ -234,3 +234,16 @@ For support, email support@secondbrain.app or create an issue in the GitHub repo
 ---
 
 **Made with ❤️ for learners everywhere**
+
+## 📝 Feedback
+
+The app includes a small floating **Feedback** button in the bottom-right corner of every page.
+
+- Clicking it opens a dialog where you can share bugs, ideas, or general feedback.
+- Feedback is stored in the `public.feedback` table in the production Supabase project.
+
+To enable the feedback feature in a new environment:
+
+1. Run the SQL in `docs/feedback_setup.sql` against your **production** Supabase project.
+2. Ensure `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are configured.
+3. New feedback entries will appear in the `public.feedback` table in Supabase.
