@@ -477,7 +477,7 @@ async def get_status(pdf_id: str):
     
     return response
 
-@app.get("/flashcards/{pdf_id}")
+@app.get("/flashcards/{deck_id}")
 async def get_flashcards_endpoint(pdf_id: str):
     """Get all flashcards for a PDF"""
     
