@@ -279,64 +279,79 @@ def update_pdf_status(pdf_id: str, status: str) -> None:
 
 def create_deck_in_supabase(deck_id: str, title: str, source_type: str, source_label: Optional[str], user_id: Optional[str] = None) -> bool:
     """
-    Create a deck entry in Supabase decks table, and optionally link it to a user.
+    Create or upsert a deck in Supabase via REST, and optionally link it to a user in user_decks.
     
-    Always creates/upserts the deck row in public.decks. If user_id is provided,
-    also creates/upserts the user_decks relationship.
+    - Always upserts into public.decks.
+    - If user_id is provided, also upserts into public.user_decks with role='owner'.
+    - Returns True if the deck upsert succeeded, False otherwise.
+    - Logs errors but does not raise.
     
-    Args:
-        deck_id: The deck ID (typically the PDF ID)
-        title: Human-readable deck title
-        source_type: Source type (e.g., 'pdf', 'youtube')
-        source_label: Source label (e.g., filename or YouTube title)
-        user_id: Optional Supabase auth user ID (UUID string). If None, only creates deck row.
-    
-    Returns:
-        bool: True if deck creation succeeded, False otherwise
+    Uses Supabase REST API (HTTP) only - no direct Postgres connections.
     """
-    if not WRITE_SUPABASE or not SUPABASE_ENABLED:
-        logger.warning("Supabase not enabled, skipping deck creation")
-        return False
+    import requests
+    from repo.supabase_rest_flashcards import _base_rest_url, _headers
     
     try:
-        with SessionSupabase() as session:
-            # Always upsert the deck metadata (required for foreign key constraint)
-            deck_sql = """
-                INSERT INTO public.decks (deck_id, title, source_type, source_label, created_at)
-                VALUES (:deck_id, :title, :source_type, :source_label, NOW())
-                ON CONFLICT (deck_id) DO UPDATE SET
-                    title = EXCLUDED.title,
-                    source_type = EXCLUDED.source_type,
-                    source_label = EXCLUDED.source_label
-            """
-            deck_params = {
+        base_url = _base_rest_url()
+        headers = _headers()
+        
+        # 1) Upsert into public.decks
+        decks_url = f"{base_url}/decks"
+        deck_payload = {
+            "deck_id": deck_id,
+            "title": title,
+            "source_type": source_type,
+            "source_label": source_label,
+        }
+        
+        decks_headers = dict(headers)
+        # merge-duplicates so re-running doesn't blow up on conflicts
+        decks_headers["Prefer"] = "resolution=merge-duplicates,return=minimal"
+        
+        resp = requests.post(decks_url, headers=decks_headers, json=deck_payload, timeout=10)
+        if resp.status_code not in (200, 201, 204):
+            logger.error(
+                "Supabase create_deck_in_supabase failed for deck_id=%s: status=%s body=%s payload=%s",
+                deck_id,
+                resp.status_code,
+                resp.text,
+                deck_payload,
+            )
+            return False
+        
+        logger.info("Supabase deck upsert OK: deck_id=%s", deck_id)
+        
+        # 2) Optionally upsert into public.user_decks
+        if user_id:
+            user_decks_url = f"{base_url}/user_decks"
+            user_payload = {
+                "user_id": user_id,
                 "deck_id": deck_id,
-                "title": title,
-                "source_type": source_type,
-                "source_label": source_label
+                "role": "owner",
             }
-            session.execute(text(deck_sql), deck_params)
             
-            # Only create user_decks relationship if user_id is provided
-            if user_id:
-                user_deck_sql = """
-                    INSERT INTO public.user_decks (user_id, deck_id, role, created_at)
-                    VALUES (:user_id, :deck_id, 'owner', NOW())
-                    ON CONFLICT (user_id, deck_id) DO UPDATE SET
-                        role = EXCLUDED.role
-                """
-                user_deck_params = {
-                    "user_id": user_id,
-                    "deck_id": deck_id
-                }
-                session.execute(text(user_deck_sql), user_deck_params)
-                logger.info(f"Successfully created deck {deck_id} in Supabase for user {user_id}")
+            user_headers = dict(headers)
+            user_headers["Prefer"] = "resolution=merge-duplicates,return=minimal"
+            
+            resp_ud = requests.post(user_decks_url, headers=user_headers, json=user_payload, timeout=10)
+            if resp_ud.status_code not in (200, 201, 204):
+                logger.error(
+                    "Supabase user_decks upsert failed for deck_id=%s user_id=%s: status=%s body=%s payload=%s",
+                    deck_id,
+                    user_id,
+                    resp_ud.status_code,
+                    resp_ud.text,
+                    user_payload,
+                )
             else:
-                logger.info(f"Successfully created deck {deck_id} in Supabase (no user_id provided, skipping user_decks)")
-            
-            session.commit()
-            return True
-            
+                logger.info(
+                    "Supabase user_decks upsert OK: deck_id=%s user_id=%s",
+                    deck_id,
+                    user_id,
+                )
+        
+        return True
+        
     except Exception as e:
-        logger.error(f"Failed to create deck in Supabase for deck_id {deck_id}: {e}", exc_info=True)
+        logger.error("Exception in create_deck_in_supabase for deck_id=%s: %s", deck_id, e, exc_info=True)
         return False
