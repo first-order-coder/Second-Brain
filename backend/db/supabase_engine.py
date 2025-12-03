@@ -1,3 +1,13 @@
+"""
+Supabase SQLAlchemy engine for direct Postgres connections.
+
+NOTE: This engine is used for summary-related features and deck creation.
+Flashcards now use Supabase REST API (via repo/supabase_rest_flashcards.py)
+instead of direct Postgres connections to avoid psycopg connection issues.
+
+If this engine fails to initialize, SUPABASE_ENABLED is set to False and the
+app continues running. Flashcards will still work via REST API.
+"""
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import os

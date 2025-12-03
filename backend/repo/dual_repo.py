@@ -8,6 +8,22 @@ from db.supabase_engine import SessionSupabase, SUPABASE_ENABLED
 
 logger = logging.getLogger(__name__)
 
+# Import Supabase REST helpers for flashcards
+try:
+    from repo.supabase_rest_flashcards import (
+        get_pdf_status_from_supabase,
+        upsert_pdf_in_supabase,
+        get_flashcards_from_supabase,
+        delete_flashcards_in_supabase,
+        insert_flashcard_in_supabase,
+        get_pdf_filename_from_supabase,
+        update_pdf_status_in_supabase,
+    )
+    SUPABASE_REST_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Supabase REST helpers not available, falling back to SQLAlchemy: {e}")
+    SUPABASE_REST_AVAILABLE = False
+
 # Environment configuration
 DB_READ_PRIMARY = os.getenv("DB_READ_PRIMARY", "sqlite").lower()
 WRITE_SUPABASE = os.getenv("DB_WRITE_SUPABASE", "true").lower() == "true" and SUPABASE_ENABLED
@@ -142,70 +158,90 @@ def convert_sqlite_to_postgres(sql: str, params: tuple) -> tuple:
     return (pg_sql, params_dict)
 
 def upsert_pdf(pdf_id: str, filename: str, status: str = "uploaded") -> str:
-    """Upsert PDF record in both databases"""
-    sql = """
-        INSERT INTO pdfs (id, filename, status, upload_date) 
-        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(id) DO UPDATE SET 
-            filename = excluded.filename,
-            status = excluded.status
     """
-    params = (pdf_id, filename, status)
+    Upsert PDF record using Supabase REST API (authoritative source).
     
-    with get_write_sessions() as sessions:
-        for db_type, session in sessions:
+    NOTE: Supabase REST is now the single source of truth for flashcards and PDFs.
+    SQLite writes are optional for local dev but Supabase REST is authoritative.
+    """
+    # Write to Supabase via REST (authoritative)
+    if SUPABASE_REST_AVAILABLE:
+        success = upsert_pdf_in_supabase(pdf_id, filename, status)
+        if not success:
+            logger.warning(f"Failed to upsert PDF {pdf_id} in Supabase via REST, continuing with SQLite fallback")
+    
+    # Optional: Also write to SQLite for local dev (non-authoritative)
+    if WRITE_SQLITE:
+        try:
+            sqlite_sql = """
+                INSERT OR REPLACE INTO pdfs (id, filename, status, upload_date) 
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            """
+            params = (pdf_id, filename, status)
+            conn = sqlite3.connect("pdf_flashcards.db")
             try:
-                if db_type == "sqlite":
-                    # SQLite doesn't support ON CONFLICT, use INSERT OR REPLACE
-                    sqlite_sql = """
-                        INSERT OR REPLACE INTO pdfs (id, filename, status, upload_date) 
-                        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                    """
-                    cursor = session.cursor()
-                    cursor.execute(sqlite_sql, params)
-                else:  # supabase
-                    pg_sql, params_dict = convert_sqlite_to_postgres(sql, params)
-                    if params_dict:
-                        session.execute(text(pg_sql), params_dict)
-                    else:
-                        session.execute(text(pg_sql))
-            except Exception as e:
-                logger.error(f"Failed to upsert PDF on {db_type}: {e}")
-                raise
+                cursor = conn.cursor()
+                cursor.execute(sqlite_sql, params)
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.warning(f"Failed to upsert PDF in SQLite (non-critical): {e}")
     
     return pdf_id
 
 def upsert_flashcard(pdf_id: str, question: str, answer: str, card_number: int) -> int:
-    """Upsert flashcard record in both databases"""
-    sql = """
-        INSERT INTO flashcards (pdf_id, question, answer, card_number) 
-        VALUES (?, ?, ?, ?)
     """
-    params = (pdf_id, question, answer, card_number)
+    Insert flashcard record using Supabase REST API (authoritative source).
     
-    with get_write_sessions() as sessions:
-        for db_type, session in sessions:
+    NOTE: Supabase REST is now the single source of truth for flashcards.
+    SQLite writes are optional for local dev but Supabase REST is authoritative.
+    """
+    # Write to Supabase via REST (authoritative)
+    if SUPABASE_REST_AVAILABLE:
+        success = insert_flashcard_in_supabase(pdf_id, question, answer, card_number)
+        if not success:
+            logger.warning(f"Failed to insert flashcard {card_number} for PDF {pdf_id} in Supabase via REST")
+    
+    # Optional: Also write to SQLite for local dev (non-authoritative)
+    result = None
+    if WRITE_SQLITE:
+        try:
+            sql = """
+                INSERT INTO flashcards (pdf_id, question, answer, card_number) 
+                VALUES (?, ?, ?, ?)
+            """
+            params = (pdf_id, question, answer, card_number)
+            conn = sqlite3.connect("pdf_flashcards.db")
             try:
-                if db_type == "sqlite":
-                    cursor = session.cursor()
-                    cursor.execute(sql, params)
-                    result = cursor.lastrowid
-                else:  # supabase
-                    pg_sql, params_dict = convert_sqlite_to_postgres(sql, params)
-                    if params_dict:
-                        result = session.execute(text(pg_sql), params_dict)
-                    else:
-                        result = session.execute(text(pg_sql))
-                    # Note: SQLAlchemy 2.x Result doesn't have lastrowid, use rowcount or RETURNING
-                    result = result.rowcount if result.rowcount else None
-            except Exception as e:
-                logger.error(f"Failed to upsert flashcard on {db_type}: {e}")
-                raise
+                cursor = conn.cursor()
+                cursor.execute(sql, params)
+                result = cursor.lastrowid
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.warning(f"Failed to insert flashcard in SQLite (non-critical): {e}")
     
-    return result
+    return result if result else card_number
 
 def get_pdf_status(pdf_id: str) -> Optional[str]:
-    """Get PDF status from primary read database"""
+    """
+    Get PDF status from Supabase REST API (authoritative source).
+    
+    NOTE: Supabase REST is now the single source of truth for flashcards and PDFs.
+    Falls back to SQLite only if Supabase REST is unavailable.
+    """
+    # Try Supabase REST first (authoritative)
+    if SUPABASE_REST_AVAILABLE:
+        status = get_pdf_status_from_supabase(pdf_id)
+        if status is not None:
+            return status
+        # If REST returns None, it means not found - don't fall back to SQLite
+        # (we want Supabase to be the source of truth)
+        return None
+    
+    # Fallback to SQLite only if REST is unavailable
     sql = "SELECT status FROM pdfs WHERE id = ?"
     params = (pdf_id,)
     
@@ -224,7 +260,21 @@ def get_pdf_status(pdf_id: str) -> Optional[str]:
     return result[0] if result else None
 
 def get_pdf_filename(pdf_id: str) -> Optional[str]:
-    """Get PDF filename from primary read database"""
+    """
+    Get PDF filename from Supabase REST API (authoritative source).
+    
+    NOTE: Supabase REST is now the single source of truth for flashcards and PDFs.
+    Falls back to SQLite only if Supabase REST is unavailable.
+    """
+    # Try Supabase REST first (authoritative)
+    if SUPABASE_REST_AVAILABLE:
+        filename = get_pdf_filename_from_supabase(pdf_id)
+        if filename is not None:
+            return filename
+        # If REST returns None, it means not found - don't fall back to SQLite
+        return None
+    
+    # Fallback to SQLite only if REST is unavailable
     sql = "SELECT filename FROM pdfs WHERE id = ?"
     params = (pdf_id,)
     
@@ -243,7 +293,32 @@ def get_pdf_filename(pdf_id: str) -> Optional[str]:
     return result[0] if result else None
 
 def get_flashcards(pdf_id: str) -> List[tuple]:
-    """Get flashcards from primary read database"""
+    """
+    Get flashcards from Supabase REST API (authoritative source).
+    
+    Returns list of tuples in format: (id, pdf_id, question, answer, card_number)
+    to maintain compatibility with existing code.
+    
+    NOTE: Supabase REST is now the single source of truth for flashcards.
+    Falls back to SQLite only if Supabase REST is unavailable.
+    """
+    # Try Supabase REST first (authoritative)
+    if SUPABASE_REST_AVAILABLE:
+        flashcards_dicts = get_flashcards_from_supabase(pdf_id)
+        # Convert dicts to tuples for compatibility: (id, pdf_id, question, answer, card_number)
+        result = [
+            (
+                fc.get("id"),
+                fc.get("pdf_id"),
+                fc.get("question", ""),
+                fc.get("answer", ""),
+                fc.get("card_number", 0)
+            )
+            for fc in flashcards_dicts
+        ]
+        return result
+    
+    # Fallback to SQLite only if REST is unavailable
     sql = "SELECT * FROM flashcards WHERE pdf_id = ? ORDER BY card_number"
     params = (pdf_id,)
     
@@ -262,25 +337,60 @@ def get_flashcards(pdf_id: str) -> List[tuple]:
     return result
 
 def delete_flashcards(pdf_id: str) -> None:
-    """Delete flashcards for a PDF from both databases"""
-    sql = "DELETE FROM flashcards WHERE pdf_id = ?"
-    params = (pdf_id,)
+    """
+    Delete flashcards for a PDF using Supabase REST API (authoritative source).
     
-    with get_write_sessions() as sessions:
-        for db_type, session in sessions:
+    NOTE: Supabase REST is now the single source of truth for flashcards.
+    SQLite deletes are optional for local dev but Supabase REST is authoritative.
+    """
+    # Delete from Supabase via REST (authoritative)
+    if SUPABASE_REST_AVAILABLE:
+        success = delete_flashcards_in_supabase(pdf_id)
+        if not success:
+            logger.warning(f"Failed to delete flashcards for PDF {pdf_id} in Supabase via REST")
+    
+    # Optional: Also delete from SQLite for local dev (non-authoritative)
+    if WRITE_SQLITE:
+        try:
+            sql = "DELETE FROM flashcards WHERE pdf_id = ?"
+            params = (pdf_id,)
+            conn = sqlite3.connect("pdf_flashcards.db")
             try:
-                if db_type == "sqlite":
-                    cursor = session.cursor()
-                    cursor.execute(sql, params)
-                else:  # supabase
-                    pg_sql, params_dict = convert_sqlite_to_postgres(sql, params)
-                    if params_dict:
-                        session.execute(text(pg_sql), params_dict)
-                    else:
-                        session.execute(text(pg_sql))
-            except Exception as e:
-                logger.error(f"Failed to delete flashcards on {db_type}: {e}")
-                raise
+                cursor = conn.cursor()
+                cursor.execute(sql, params)
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.warning(f"Failed to delete flashcards from SQLite (non-critical): {e}")
+
+def update_pdf_status(pdf_id: str, status: str) -> None:
+    """
+    Update PDF status using Supabase REST API (authoritative source).
+    
+    NOTE: Supabase REST is now the single source of truth for PDFs.
+    SQLite updates are optional for local dev but Supabase REST is authoritative.
+    """
+    # Update in Supabase via REST (authoritative)
+    if SUPABASE_REST_AVAILABLE:
+        success = update_pdf_status_in_supabase(pdf_id, status)
+        if not success:
+            logger.warning(f"Failed to update PDF {pdf_id} status to {status} in Supabase via REST")
+    
+    # Optional: Also update in SQLite for local dev (non-authoritative)
+    if WRITE_SQLITE:
+        try:
+            sql = "UPDATE pdfs SET status = ? WHERE id = ?"
+            params = (status, pdf_id)
+            conn = sqlite3.connect("pdf_flashcards.db")
+            try:
+                cursor = conn.cursor()
+                cursor.execute(sql, params)
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.warning(f"Failed to update PDF status in SQLite (non-critical): {e}")
 
 def create_deck_in_supabase(deck_id: str, title: str, source_type: str, source_label: Optional[str], user_id: str) -> bool:
     """

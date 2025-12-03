@@ -20,7 +20,8 @@ import asyncio
 from dotenv import load_dotenv
 from repo.dual_repo import (
     upsert_pdf, upsert_flashcard, get_pdf_status, get_flashcards, 
-    delete_flashcards, execute_dual_write_sql, create_deck_in_supabase, get_pdf_filename
+    delete_flashcards, execute_dual_write_sql, create_deck_in_supabase, get_pdf_filename,
+    update_pdf_status
 )
 
 # Load environment variables
@@ -321,8 +322,8 @@ async def generate_flashcards_endpoint(
     if not pdf_status:
         raise HTTPException(status_code=404, detail="PDF not found")
     
-    # Update status to processing using dual-write
-    execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("processing", pdf_id))
+    # Update status to processing using Supabase REST (authoritative)
+    update_pdf_status(pdf_id, "processing")
     
     # Start background task with user_id
     background_tasks.add_task(process_pdf_and_generate_flashcards, pdf_id, x_user_id)
@@ -330,15 +331,20 @@ async def generate_flashcards_endpoint(
     return {"message": "Flashcard generation started", "pdf_id": pdf_id}
 
 async def process_pdf_and_generate_flashcards(pdf_id: str, user_id: Optional[str] = None):
-    """Background task to process PDF and generate flashcards
+    """
+    Background task to process PDF and generate flashcards.
+    
+    NOTE: This function uses dual_repo functions (upsert_pdf, upsert_flashcard, delete_flashcards)
+    which now write to Supabase REST API as the authoritative source. The local SQLite DB
+    is no longer used for flashcards and can be safely ignored for that purpose.
     
     Args:
         pdf_id: The PDF ID
         user_id: Optional Supabase auth user ID for deck creation
     """
     try:
-        # Update status to processing using dual-write
-        execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("processing", pdf_id))
+        # Update status to processing using Supabase REST (authoritative)
+        update_pdf_status(pdf_id, "processing")
         
         # Extract text from PDF
         file_path = UPLOAD_DIR / f"{pdf_id}.pdf"
@@ -361,8 +367,8 @@ async def process_pdf_and_generate_flashcards(pdf_id: str, user_id: Optional[str
         for i, flashcard in enumerate(flashcards_data):
             upsert_flashcard(pdf_id, flashcard["question"], flashcard["answer"], i + 1)
         
-        # Update PDF status to completed
-        execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("completed", pdf_id))
+        # Update PDF status to completed using Supabase REST (authoritative)
+        update_pdf_status(pdf_id, "completed")
         logging.info(f"✅ Successfully processed PDF {pdf_id} and generated {len(flashcards_data)} flashcards")
         print(f"✅ Successfully processed PDF {pdf_id} and generated {len(flashcards_data)} flashcards")
         
@@ -418,21 +424,21 @@ async def process_pdf_and_generate_flashcards(pdf_id: str, user_id: Optional[str
         # Handle specific HTTP errors from OpenAI using dual-write
         # Set status based on error type
         if e.status_code == 429:  # Quota exceeded
-            execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("quota_exceeded", pdf_id))
+            update_pdf_status(pdf_id, "quota_exceeded")
             print(f"⚠️ Quota exceeded for PDF {pdf_id}: {e.detail}")
         elif e.status_code == 401:  # Authentication error
-            execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("auth_error", pdf_id))
+            update_pdf_status(pdf_id, "auth_error")
             print(f"❌ Authentication error for PDF {pdf_id}: {e.detail}")
         elif e.status_code == 504:  # Timeout
-            execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("timeout", pdf_id))
+            update_pdf_status(pdf_id, "timeout")
             print(f"⏱️ Timeout error for PDF {pdf_id}: {e.detail}")
         else:  # Other HTTP errors
-            execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("service_error", pdf_id))
+            update_pdf_status(pdf_id, "service_error")
             print(f"🔧 Service error for PDF {pdf_id}: {e.detail}")
         
     except Exception as e:
         # Handle other errors using dual-write
-        execute_dual_write_sql("UPDATE pdfs SET status = ? WHERE id = ?", ("error", pdf_id))
+        update_pdf_status(pdf_id, "error")
         print(f"❌ Error processing PDF {pdf_id}: {str(e)}")
 
 @app.get("/status/{pdf_id}")
@@ -486,6 +492,11 @@ async def get_flashcards_endpoint(pdf_id: str):
     parameter. This aligns with the Next.js frontend, which calls `/flashcards/<id>`
     where `<id>` is the same value stored in `pdfs.id` and `flashcards.pdf_id`,
     and used as `deck_id` in Supabase.
+
+    IMPORTANT: This endpoint reads from Supabase REST API (via dual_repo), which is
+    the single source of truth for flashcards. The local SQLite DB is no longer used
+    for flashcards and can be safely ignored for that purpose. This ensures flashcards
+    persist across Render restarts.
     """
     
     # Get PDF status
