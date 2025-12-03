@@ -490,13 +490,12 @@ async def get_flashcards_endpoint(pdf_id: str):
 
     NOTE: pdf_id comes from the PATH segment `/flashcards/{pdf_id}`, not from a query
     parameter. This aligns with the Next.js frontend, which calls `/flashcards/<id>`
-    where `<id>` is the same value stored in `pdfs.id` and `flashcards.pdf_id`,
-    and used as `deck_id` in Supabase.
+    where `<id>` is the same value stored in `pdfs.id` (SQLite) and used as `deck_id`
+    in Supabase flashcards table.
 
-    IMPORTANT: This endpoint reads from Supabase REST API (via dual_repo), which is
-    the single source of truth for flashcards. The local SQLite DB is no longer used
-    for flashcards and can be safely ignored for that purpose. This ensures flashcards
-    persist across Render restarts.
+    IMPORTANT: This endpoint tries Supabase flashcards table first (via REST), then
+    falls back to SQLite if Supabase is unavailable. This ensures flashcards persist
+    across Render restarts when available in Supabase.
     """
     
     # Get PDF status
