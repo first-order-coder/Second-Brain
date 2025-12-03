@@ -8,38 +8,46 @@ Important: In Supabase, `deck_id` is used (which equals `pdf_id` in the backend)
 """
 
 import os
-import logging
 import requests
+import logging
 from typing import List, Dict
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
+def _base_rest_url() -> str:
+    """
+    Returns the base REST URL.
+    If SUPABASE_URL already ends with '/rest/v1', don't append it again.
+    Otherwise, append '/rest/v1'.
+    """
+    if not SUPABASE_URL:
+        raise RuntimeError("SUPABASE_URL is not set")
+    if SUPABASE_URL.endswith("/rest/v1"):
+        return SUPABASE_URL
+    return f"{SUPABASE_URL}/rest/v1"
+
 def _headers() -> Dict[str, str]:
-    """Get headers for Supabase REST API requests"""
-    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-        raise RuntimeError("Supabase environment variables missing: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY required")
-    
+    if not SUPABASE_SERVICE_ROLE_KEY:
+        raise RuntimeError("SUPABASE_SERVICE_ROLE_KEY is not set")
     return {
         "apikey": SUPABASE_SERVICE_ROLE_KEY,
         "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
         "Content-Type": "application/json",
+        # default: return representation so we can see rows
+        "Prefer": "return=representation",
     }
 
 def insert_flashcard_in_supabase(deck_id: str, question: str, answer: str, card_number: int) -> None:
     """
-    Insert a single flashcard into Supabase flashcards table.
-    
-    Args:
-        deck_id: The deck ID (same as pdf_id in backend)
-        question: Flashcard question text
-        answer: Flashcard answer text
-        card_number: Card number (1-indexed)
+    Insert a single flashcard into public.flashcards.
+    Logs success or failure; never raises.
     """
     try:
-        url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/flashcards"
+        url = f"{_base_rest_url()}/flashcards"
         payload = {
             "deck_id": deck_id,
             "question": question,
@@ -48,41 +56,46 @@ def insert_flashcard_in_supabase(deck_id: str, question: str, answer: str, card_
         }
         resp = requests.post(url, headers=_headers(), json=payload, timeout=10)
         if resp.status_code not in (200, 201):
-            logger.error(f"Supabase insert_flashcard failed ({resp.status_code}): {resp.text}")
+            logger.error(
+                "Supabase insert_flashcard failed: status=%s body=%s payload=%s",
+                resp.status_code,
+                resp.text,
+                payload,
+            )
+        else:
+            logger.info("Supabase insert_flashcard OK: deck_id=%s card_number=%s", deck_id, card_number)
     except Exception as e:
-        logger.error(f"Supabase insert_flashcard exception: {e}")
+        logger.error("Supabase insert_flashcard exception for deck_id=%s: %s", deck_id, e)
 
 def delete_flashcards_in_supabase(deck_id: str) -> None:
     """
-    Delete all flashcards for a deck from Supabase.
-    
-    Args:
-        deck_id: The deck ID (same as pdf_id in backend)
+    Delete all flashcards for a deck_id. Logs errors, never raises.
     """
     try:
-        url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/flashcards"
+        url = f"{_base_rest_url()}/flashcards"
         params = {"deck_id": f"eq.{deck_id}"}
         headers = _headers()
         headers["Prefer"] = "return=minimal"
         resp = requests.delete(url, headers=headers, params=params, timeout=10)
         if resp.status_code not in (200, 204):
-            logger.error(f"Supabase delete_flashcards failed ({resp.status_code}): {resp.text}")
+            logger.error(
+                "Supabase delete_flashcards failed: status=%s body=%s deck_id=%s",
+                resp.status_code,
+                resp.text,
+                deck_id,
+            )
+        else:
+            logger.info("Supabase delete_flashcards OK: deck_id=%s", deck_id)
     except Exception as e:
-        logger.error(f"Supabase delete_flashcards exception: {e}")
+        logger.error("Supabase delete_flashcards exception for deck_id=%s: %s", deck_id, e)
 
 def get_flashcards_from_supabase(deck_id: str) -> List[Dict]:
     """
-    Get all flashcards for a deck from Supabase.
-    
-    Args:
-        deck_id: The deck ID (same as pdf_id in backend)
-    
-    Returns:
-        List of flashcard dictionaries with keys: id, question, answer, card_number
-        Returns empty list if not found or on error.
+    Get all flashcards for a given deck_id, ordered by card_number.
+    Returns [] on error and logs the problem.
     """
     try:
-        url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/flashcards"
+        url = f"{_base_rest_url()}/flashcards"
         params = {
             "deck_id": f"eq.{deck_id}",
             "select": "id,question,answer,card_number",
@@ -90,9 +103,16 @@ def get_flashcards_from_supabase(deck_id: str) -> List[Dict]:
         }
         resp = requests.get(url, headers=_headers(), params=params, timeout=10)
         if resp.status_code != 200:
-            logger.error(f"Supabase get_flashcards failed ({resp.status_code}): {resp.text}")
+            logger.error(
+                "Supabase get_flashcards failed: status=%s body=%s deck_id=%s",
+                resp.status_code,
+                resp.text,
+                deck_id,
+            )
             return []
-        return resp.json()
+        rows = resp.json()
+        logger.info("Supabase get_flashcards OK: deck_id=%s count=%s", deck_id, len(rows))
+        return rows
     except Exception as e:
-        logger.error(f"Supabase get_flashcards exception: {e}")
+        logger.error("Supabase get_flashcards exception for deck_id=%s: %s", deck_id, e)
         return []

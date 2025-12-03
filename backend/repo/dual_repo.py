@@ -9,16 +9,11 @@ from db.supabase_engine import SessionSupabase, SUPABASE_ENABLED
 logger = logging.getLogger(__name__)
 
 # Import Supabase REST helpers for flashcards (only flashcards table, not pdfs)
-try:
-    from repo.supabase_rest_flashcards import (
-        insert_flashcard_in_supabase,
-        delete_flashcards_in_supabase,
-        get_flashcards_from_supabase,
-    )
-    SUPABASE_REST_AVAILABLE = True
-except ImportError as e:
-    logger.warning(f"Supabase REST helpers not available, falling back to SQLite: {e}")
-    SUPABASE_REST_AVAILABLE = False
+from repo.supabase_rest_flashcards import (
+    insert_flashcard_in_supabase,
+    delete_flashcards_in_supabase,
+    get_flashcards_from_supabase,
+)
 
 # Environment configuration
 DB_READ_PRIMARY = os.getenv("DB_READ_PRIMARY", "sqlite").lower()
@@ -180,40 +175,13 @@ def upsert_pdf(pdf_id: str, filename: str, status: str = "uploaded") -> str:
 
 def upsert_flashcard(pdf_id: str, question: str, answer: str, card_number: int) -> int:
     """
-    Insert flashcard record. Writes to SQLite first, then mirrors to Supabase flashcards table.
+    Save a flashcard for the given pdf_id/deck_id in Supabase.
     
-    NOTE: pdf_id in backend = deck_id in Supabase flashcards table.
-    SQLite is the primary write, Supabase is a mirror (best effort).
+    We no longer write flashcards to SQLite.
     """
-    # Write to SQLite first (primary)
-    result = None
-    if WRITE_SQLITE:
-        try:
-            sql = """
-                INSERT INTO flashcards (pdf_id, question, answer, card_number) 
-                VALUES (?, ?, ?, ?)
-            """
-            params = (pdf_id, question, answer, card_number)
-            conn = sqlite3.connect("pdf_flashcards.db")
-            try:
-                cursor = conn.cursor()
-                cursor.execute(sql, params)
-                result = cursor.lastrowid
-                conn.commit()
-            finally:
-                conn.close()
-        except Exception as e:
-            logger.warning(f"Failed to insert flashcard in SQLite: {e}")
-    
-    # Mirror to Supabase flashcards table (best effort)
-    if SUPABASE_REST_AVAILABLE:
-        try:
-            # Note: pdf_id in backend = deck_id in Supabase
-            insert_flashcard_in_supabase(pdf_id, question, answer, card_number)
-        except Exception as e:
-            logger.warning(f"Supabase mirror upsert_flashcard failed for {pdf_id}: {e}")
-    
-    return result if result else card_number
+    # pdf_id here is actually the deck_id
+    insert_flashcard_in_supabase(pdf_id, question, answer, card_number)
+    return card_number
 
 def get_pdf_status(pdf_id: str) -> Optional[str]:
     """
@@ -263,84 +231,31 @@ def get_pdf_filename(pdf_id: str) -> Optional[str]:
 
 def get_flashcards(pdf_id: str) -> List[tuple]:
     """
-    Get flashcards. Tries Supabase flashcards table first, then falls back to SQLite.
+    Return flashcards for a given pdf_id/deck_id from Supabase.
     
-    Returns list of tuples in format: (id, pdf_id, question, answer, card_number)
-    to maintain compatibility with existing code.
-    
-    NOTE: pdf_id in backend = deck_id in Supabase flashcards table.
+    Returns a list of tuples shaped like:
+      (id, pdf_id, question, answer, card_number)
+    so that main.py can keep working.
     """
-    # 1) Try Supabase first
-    cards = []
-    if SUPABASE_REST_AVAILABLE:
-        try:
-            rows = get_flashcards_from_supabase(pdf_id)
-            if rows:
-                # Convert dicts to tuples: (id, pdf_id, question, answer, card_number)
-                # Note: Supabase returns id, question, answer, card_number (no deck_id in response)
-                cards = [
-                    (
-                        str(row.get("id")),  # UUID as string
-                        pdf_id,  # Use pdf_id from parameter (deck_id in Supabase)
-                        row.get("question", ""),
-                        row.get("answer", ""),
-                        row.get("card_number", 0)
-                    )
-                    for row in rows
-                ]
-        except Exception as e:
-            logger.warning(f"Supabase get_flashcards failed for {pdf_id}: {e}")
-    
-    if cards:
-        return cards
-    
-    # 2) Fallback: use the existing SQLite implementation
-    sql = "SELECT * FROM flashcards WHERE pdf_id = ? ORDER BY card_number"
-    params = (pdf_id,)
-    
-    with get_read_session() as session:
-        if isinstance(session, sqlite3.Connection):
-            cursor = session.cursor()
-            cursor.execute(sql, params)
-            result = cursor.fetchall()
-        else:  # supabase session
-            pg_sql, params_dict = convert_sqlite_to_postgres(sql, params)
-            if params_dict:
-                result = session.execute(text(pg_sql), params_dict).fetchall()
-            else:
-                result = session.execute(text(pg_sql)).fetchall()
-    
-    return result
+    rows = get_flashcards_from_supabase(pdf_id)
+    return [
+        (
+            row.get("id"),
+            pdf_id,
+            row.get("question"),
+            row.get("answer"),
+            row.get("card_number"),
+        )
+        for row in rows
+    ]
 
 def delete_flashcards(pdf_id: str) -> None:
     """
-    Delete flashcards for a PDF. Deletes from SQLite first, then mirrors to Supabase.
+    Delete all flashcards for this pdf_id/deck_id from Supabase.
     
-    NOTE: pdf_id in backend = deck_id in Supabase flashcards table.
-    SQLite is the primary delete, Supabase is a mirror (best effort).
+    We no longer track flashcards in SQLite.
     """
-    # Delete from SQLite first (primary)
-    if WRITE_SQLITE:
-        try:
-            sql = "DELETE FROM flashcards WHERE pdf_id = ?"
-            params = (pdf_id,)
-            conn = sqlite3.connect("pdf_flashcards.db")
-            try:
-                cursor = conn.cursor()
-                cursor.execute(sql, params)
-                conn.commit()
-            finally:
-                conn.close()
-        except Exception as e:
-            logger.warning(f"Failed to delete flashcards from SQLite: {e}")
-    
-    # Mirror to Supabase flashcards table (best effort)
-    if SUPABASE_REST_AVAILABLE:
-        try:
-            # Note: pdf_id in backend = deck_id in Supabase
-            delete_flashcards_in_supabase(pdf_id)
-        except Exception as e:
-            logger.warning(f"Supabase mirror delete_flashcards failed for {pdf_id}: {e}")
+    delete_flashcards_in_supabase(pdf_id)
 
 def update_pdf_status(pdf_id: str, status: str) -> None:
     """
