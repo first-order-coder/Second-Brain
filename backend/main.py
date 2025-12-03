@@ -359,11 +359,33 @@ async def process_pdf_and_generate_flashcards(pdf_id: str, user_id: Optional[str
         # Generate flashcards using OpenAI
         flashcards_data = generate_flashcards(text_content)
         
-        # Save flashcards to database using dual-write
+        # Ensure deck exists in Supabase BEFORE inserting flashcards (required for foreign key constraint)
+        deck_created = False
+        try:
+            filename = get_pdf_filename(pdf_id)
+            if filename:
+                import re
+                title = re.sub(r'\.pdf$', '', filename, flags=re.IGNORECASE).strip() or filename
+                
+                logging.info(f"Ensuring deck exists in Supabase: deck_id={pdf_id}, title={title}, user_id={user_id}")
+                success = create_deck_in_supabase(
+                    deck_id=pdf_id,
+                    title=title,
+                    source_type="pdf",
+                    source_label=filename,
+                    user_id=user_id  # may be None, function handles that gracefully
+                )
+                deck_created = bool(success)
+            else:
+                logging.warning(f"Could not find filename for PDF {pdf_id} when creating deck in Supabase")
+        except Exception as deck_error:
+            logging.error(f"Exception while ensuring deck exists in Supabase for PDF {pdf_id}: {deck_error}", exc_info=True)
+        
+        # Save flashcards to database using Supabase
         # Clear any existing flashcards for this PDF
         delete_flashcards(pdf_id)
         
-        # Insert new flashcards
+        # Insert new flashcards (now safe because deck exists)
         for i, flashcard in enumerate(flashcards_data):
             upsert_flashcard(pdf_id, flashcard["question"], flashcard["answer"], i + 1)
         
@@ -372,53 +394,11 @@ async def process_pdf_and_generate_flashcards(pdf_id: str, user_id: Optional[str
         logging.info(f"✅ Successfully processed PDF {pdf_id} and generated {len(flashcards_data)} flashcards")
         print(f"✅ Successfully processed PDF {pdf_id} and generated {len(flashcards_data)} flashcards")
         
-        # Create deck in Supabase if user_id is provided
-        deck_created = False
-        if user_id:
-            try:
-                # Get PDF filename for deck title and source_label
-                filename = get_pdf_filename(pdf_id)
-                
-                if filename:
-                    # Remove .pdf extension for title
-                    import re
-                    title = re.sub(r'\.pdf$', '', filename, flags=re.IGNORECASE).strip() or filename
-                    
-                    # Create deck in Supabase
-                    # Note: deck_id = pdf_id (reusing the same ID)
-                    logging.info(f"Creating deck in Supabase: deck_id={pdf_id}, title={title}, user_id={user_id}")
-                    success = create_deck_in_supabase(
-                        deck_id=pdf_id,
-                        title=title,
-                        source_type="pdf",
-                        source_label=filename,
-                        user_id=user_id
-                    )
-                    if success:
-                        deck_created = True
-                        logging.info(f"✅ Created deck {pdf_id} in Supabase for user {user_id}")
-                        print(f"✅ Created deck {pdf_id} in Supabase for user {user_id}")
-                    else:
-                        logging.error(f"❌ Failed to create deck {pdf_id} in Supabase - create_deck_in_supabase returned False")
-                        print(f"❌ Failed to create deck {pdf_id} in Supabase - create_deck_in_supabase returned False")
-                else:
-                    logging.warning(f"⚠️ Could not find filename for PDF {pdf_id}, skipping deck creation")
-                    print(f"⚠️ Could not find filename for PDF {pdf_id}, skipping deck creation")
-            except Exception as deck_error:
-                # Log the full error for debugging
-                logging.error(f"❌ Exception while creating deck in Supabase for PDF {pdf_id}: {deck_error}", exc_info=True)
-                print(f"❌ Deck creation failed for PDF {pdf_id}: {deck_error}")
-                import traceback
-                traceback.print_exc()
-        else:
-            logging.warning(f"⚠️ No user_id provided for PDF {pdf_id}, skipping Supabase deck creation")
-            print(f"⚠️ No user_id provided for PDF {pdf_id}, skipping Supabase deck creation")
-        
         # Log final status
         if deck_created:
-            logging.info(f"✅ PDF {pdf_id} processing complete: flashcards generated, deck created in Supabase")
+            logging.info(f"✅ PDF {pdf_id} processing complete: flashcards generated, deck exists in Supabase")
         else:
-            logging.info(f"✅ PDF {pdf_id} processing complete: flashcards generated, deck NOT created (user_id missing or creation failed)")
+            logging.info(f"✅ PDF {pdf_id} processing complete: flashcards generated, but deck may not exist in Supabase")
         
     except HTTPException as e:
         # Handle specific HTTP errors from OpenAI using dual-write

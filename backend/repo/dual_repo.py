@@ -277,19 +277,22 @@ def update_pdf_status(pdf_id: str, status: str) -> None:
         except Exception as e:
             logger.warning(f"Failed to update PDF status in SQLite: {e}")
 
-def create_deck_in_supabase(deck_id: str, title: str, source_type: str, source_label: Optional[str], user_id: str) -> bool:
+def create_deck_in_supabase(deck_id: str, title: str, source_type: str, source_label: Optional[str], user_id: Optional[str] = None) -> bool:
     """
-    Create a deck entry in Supabase decks and user_decks tables.
+    Create a deck entry in Supabase decks table, and optionally link it to a user.
+    
+    Always creates/upserts the deck row in public.decks. If user_id is provided,
+    also creates/upserts the user_decks relationship.
     
     Args:
         deck_id: The deck ID (typically the PDF ID)
         title: Human-readable deck title
         source_type: Source type (e.g., 'pdf', 'youtube')
         source_label: Source label (e.g., filename or YouTube title)
-        user_id: Supabase auth user ID (UUID string)
+        user_id: Optional Supabase auth user ID (UUID string). If None, only creates deck row.
     
     Returns:
-        bool: True if successful, False otherwise
+        bool: True if deck creation succeeded, False otherwise
     """
     if not WRITE_SUPABASE or not SUPABASE_ENABLED:
         logger.warning("Supabase not enabled, skipping deck creation")
@@ -297,7 +300,7 @@ def create_deck_in_supabase(deck_id: str, title: str, source_type: str, source_l
     
     try:
         with SessionSupabase() as session:
-            # First, upsert the deck metadata
+            # Always upsert the deck metadata (required for foreign key constraint)
             deck_sql = """
                 INSERT INTO public.decks (deck_id, title, source_type, source_label, created_at)
                 VALUES (:deck_id, :title, :source_type, :source_label, NOW())
@@ -314,23 +317,26 @@ def create_deck_in_supabase(deck_id: str, title: str, source_type: str, source_l
             }
             session.execute(text(deck_sql), deck_params)
             
-            # Then, upsert the user_decks relationship
-            user_deck_sql = """
-                INSERT INTO public.user_decks (user_id, deck_id, role, created_at)
-                VALUES (:user_id, :deck_id, 'owner', NOW())
-                ON CONFLICT (user_id, deck_id) DO UPDATE SET
-                    role = EXCLUDED.role
-            """
-            user_deck_params = {
-                "user_id": user_id,
-                "deck_id": deck_id
-            }
-            session.execute(text(user_deck_sql), user_deck_params)
+            # Only create user_decks relationship if user_id is provided
+            if user_id:
+                user_deck_sql = """
+                    INSERT INTO public.user_decks (user_id, deck_id, role, created_at)
+                    VALUES (:user_id, :deck_id, 'owner', NOW())
+                    ON CONFLICT (user_id, deck_id) DO UPDATE SET
+                        role = EXCLUDED.role
+                """
+                user_deck_params = {
+                    "user_id": user_id,
+                    "deck_id": deck_id
+                }
+                session.execute(text(user_deck_sql), user_deck_params)
+                logger.info(f"Successfully created deck {deck_id} in Supabase for user {user_id}")
+            else:
+                logger.info(f"Successfully created deck {deck_id} in Supabase (no user_id provided, skipping user_decks)")
             
             session.commit()
-            logger.info(f"Successfully created deck {deck_id} in Supabase for user {user_id}")
             return True
             
     except Exception as e:
-        logger.error(f"Failed to create deck in Supabase for PDF {deck_id}: {e}")
+        logger.error(f"Failed to create deck in Supabase for deck_id {deck_id}: {e}", exc_info=True)
         return False
