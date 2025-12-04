@@ -473,22 +473,19 @@ async def get_flashcards_endpoint(pdf_id: str):
     where `<id>` is the same value stored in `pdfs.id` (SQLite) and used as `deck_id`
     in Supabase flashcards table.
 
-    IMPORTANT: This endpoint tries Supabase flashcards table first (via REST), then
-    falls back to SQLite if Supabase is unavailable. This ensures flashcards persist
-    across Render restarts when available in Supabase.
+    IMPORTANT: This endpoint fetches flashcards from Supabase only. Supabase is the
+    only source of truth for flashcards. No SQLite, no PDF table checks.
     """
     
-    # Get PDF status
-    pdf_status = get_pdf_status(pdf_id)
-    
-    if not pdf_status:
-        raise HTTPException(status_code=404, detail="PDF not found")
-    
-    if pdf_status != "completed":
-        return {"pdf_id": pdf_id, "status": pdf_status, "flashcards": []}
-    
-    # Get flashcards using dual-repo read
+    # Fetch flashcards from Supabase only
     flashcards = get_flashcards(pdf_id)
+    
+    if not flashcards:
+        # JSON 404 – frontend can safely parse this
+        raise HTTPException(
+            status_code=404,
+            detail="Flashcards not found for this deck_id (maybe not generated yet).",
+        )
     
     flashcards_list = []
     for flashcard in flashcards:
@@ -499,7 +496,7 @@ async def get_flashcards_endpoint(pdf_id: str):
             "card_number": flashcard[4]
         })
     
-    return {"pdf_id": pdf_id, "status": pdf_status, "flashcards": flashcards_list}
+    return {"pdf_id": pdf_id, "status": "completed", "flashcards": flashcards_list}
 
 @app.get("/")
 async def root():
