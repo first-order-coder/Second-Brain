@@ -33,8 +33,7 @@ export default function FlashcardViewer({ pdfId, flashcards }: FlashcardViewerPr
   const neutralBtn = `${baseBtn} border border-gray-300 dark:border-white/20 bg-white/70 text-gray-900 hover:bg-white dark:bg-slate-900/50 dark:text-white hover:translate-y-[-1px]`
   const secondaryBtn = `${baseBtn} bg-gray-100 text-gray-900 hover:bg-gray-200 dark:bg-gray-800 dark:text-white dark:hover:bg-gray-900 hover:translate-y-[-1px]`
 
-  // Grading button styles
-  const againBtn = `${baseBtn} bg-rose-600 text-white hover:bg-rose-700 hover:translate-y-[-1px]`
+  // Grading button styles (Again button removed from UI)
   const hardBtn = `${baseBtn} bg-amber-600 text-white hover:bg-amber-700 hover:translate-y-[-1px]`
   const goodBtn = `${baseBtn} bg-emerald-600 text-white hover:bg-emerald-700 hover:translate-y-[-1px]`
   const easyBtn = `${baseBtn} bg-sky-600 text-white hover:bg-sky-700 hover:translate-y-[-1px]`
@@ -252,9 +251,7 @@ export default function FlashcardViewer({ pdfId, flashcards }: FlashcardViewerPr
               </button>
             ) : (
               <>
-                <button onClick={() => onGrade(1)} className={againBtn}>
-                  Again (1)
-                </button>
+                {/* Again (1) button removed from UI */}
                 <button onClick={() => onGrade(2)} className={hardBtn}>
                   Hard (2)
                 </button>
