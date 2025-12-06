@@ -186,8 +186,8 @@ export default function FlashcardViewer({ pdfId, flashcards }: FlashcardViewerPr
         </div>
       </header>
 
-      {/* Main - Flexible center area for card */}
-      <main className="flex-1 px-4 pb-4 flex items-center justify-center overflow-hidden">
+      {/* Main - Card and controls together, centered */}
+      <main className="flex-1 px-4 py-6 flex items-center justify-center">
         <div className="w-full max-w-4xl">
           {/* Flashcard with premium styling */}
           <motion.div
@@ -196,7 +196,7 @@ export default function FlashcardViewer({ pdfId, flashcards }: FlashcardViewerPr
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: 0.25, ease: 'easeOut' }}
             onClick={!revealed ? handleReveal : undefined}
-            className="bg-white/80 dark:bg-slate-900/70 border border-gray-200/60 dark:border-white/10 rounded-2xl shadow-[0_10px_30px_-10px_rgba(2,6,23,0.25)] p-8 sm:p-10 text-center select-none cursor-pointer hover:shadow-lg transition-shadow flex flex-col justify-center max-h-[calc(100vh-260px)] overflow-y-auto"
+            className="bg-white/80 dark:bg-slate-900/70 border border-gray-200/60 dark:border-white/10 rounded-2xl shadow-[0_10px_30px_-10px_rgba(2,6,23,0.25)] p-8 sm:p-10 text-center select-none cursor-pointer hover:shadow-lg transition-shadow flex flex-col justify-center max-h-[calc(100vh-280px)] overflow-y-auto"
           >
             <span className="inline-block mb-3 bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-200 text-xs font-medium px-3 py-1 rounded-full">
               Question
@@ -233,13 +233,9 @@ export default function FlashcardViewer({ pdfId, flashcards }: FlashcardViewerPr
           <div className="sr-only" aria-live="polite">
             {revealed ? 'Answer revealed' : 'Answer hidden'}
           </div>
-        </div>
-      </main>
 
-      {/* Footer - Bottom controls */}
-      <footer className="px-4 pb-4 pt-2">
-        <div className="w-full max-w-5xl mx-auto bg-transparent">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* Controls - directly below the card */}
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
           <button 
             onClick={prevCard} 
             disabled={currentCardIndex === 0} 
@@ -298,7 +294,7 @@ export default function FlashcardViewer({ pdfId, flashcards }: FlashcardViewerPr
           </div>
         </div>
         </div>
-      </footer>
+      </main>
       
     </div>
   )
