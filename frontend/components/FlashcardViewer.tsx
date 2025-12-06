@@ -187,7 +187,7 @@ export default function FlashcardViewer({ pdfId, flashcards }: FlashcardViewerPr
       </header>
 
       {/* Main - Flexible center area for card */}
-      <main className="flex-1 px-4 pb-4 flex items-center justify-center">
+      <main className="flex-1 px-4 pb-4 flex items-center justify-center overflow-hidden">
         <div className="w-full max-w-4xl">
           {/* Flashcard with premium styling */}
           <motion.div
@@ -196,7 +196,7 @@ export default function FlashcardViewer({ pdfId, flashcards }: FlashcardViewerPr
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: 0.25, ease: 'easeOut' }}
             onClick={!revealed ? handleReveal : undefined}
-            className="bg-white/80 dark:bg-slate-900/70 border border-gray-200/60 dark:border-white/10 rounded-2xl shadow-[0_10px_30px_-10px_rgba(2,6,23,0.25)] p-8 sm:p-10 text-center select-none cursor-pointer hover:shadow-lg transition-shadow flex flex-col justify-center max-h-[calc(100vh-220px)] overflow-y-auto"
+            className="bg-white/80 dark:bg-slate-900/70 border border-gray-200/60 dark:border-white/10 rounded-2xl shadow-[0_10px_30px_-10px_rgba(2,6,23,0.25)] p-8 sm:p-10 text-center select-none cursor-pointer hover:shadow-lg transition-shadow flex flex-col justify-center max-h-[calc(100vh-260px)] overflow-y-auto"
           >
             <span className="inline-block mb-3 bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-200 text-xs font-medium px-3 py-1 rounded-full">
               Question
@@ -216,13 +216,13 @@ export default function FlashcardViewer({ pdfId, flashcards }: FlashcardViewerPr
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2 }}
-                className="mt-4 text-lg sm:text-xl leading-relaxed break-words"
+                className="mt-4"
               >
                 <div className="p-5 rounded-xl border bg-emerald-50/80 border-emerald-200/70 text-emerald-900 dark:bg-emerald-900/20 dark:border-emerald-700/40 dark:text-emerald-100">
                   <span className="inline-block mb-2 bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200 text-xs font-medium px-3 py-1 rounded-full">
                     Answer
                   </span>
-                  <p className="text-lg leading-relaxed break-words">{currentCard.answer}</p>
+                  <p className="text-lg sm:text-xl leading-relaxed break-words">{currentCard.answer}</p>
                 </div>
               </motion.div>
             )}
@@ -238,7 +238,8 @@ export default function FlashcardViewer({ pdfId, flashcards }: FlashcardViewerPr
 
       {/* Footer - Bottom controls */}
       <footer className="px-4 pb-4 pt-2">
-        <div className="flex flex-wrap items-center justify-between gap-3 max-w-4xl mx-auto">
+        <div className="w-full max-w-5xl mx-auto bg-transparent">
+          <div className="flex flex-wrap items-center justify-between gap-3">
           <button 
             onClick={prevCard} 
             disabled={currentCardIndex === 0} 
@@ -295,6 +296,7 @@ export default function FlashcardViewer({ pdfId, flashcards }: FlashcardViewerPr
               <ChevronRight className="w-5 h-5" />
             </button>
           </div>
+        </div>
         </div>
       </footer>
       
