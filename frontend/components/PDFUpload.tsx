@@ -212,16 +212,16 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
   const getStatusIcon = () => {
     switch (uploadStatus.type) {
       case 'uploading':
-        return <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+        return <Loader2 className="w-10 h-10 sm:w-12 sm:h-12 text-blue-500 animate-spin" />
       case 'success':
-        return <CheckCircle className="w-8 h-8 text-green-500" />
+        return <CheckCircle className="w-10 h-10 sm:w-12 sm:h-12 text-green-500" />
       case 'error':
-        return <AlertCircle className="w-8 h-8 text-red-500" />
+        return <AlertCircle className="w-10 h-10 sm:w-12 sm:h-12 text-red-500" />
       default:
         return isDragActive ? (
-          <Upload className="w-8 h-8 text-blue-500" />
+          <Upload className="w-10 h-10 sm:w-12 sm:h-12 text-blue-500" />
         ) : (
-          <FileText className="w-8 h-8 text-gray-400" />
+          <FileText className="w-10 h-10 sm:w-12 sm:h-12 text-gray-400" />
         )
     }
   }
@@ -246,13 +246,18 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
     <div className="w-full">
       <motion.div
         className={`
-          border-2 border-dashed rounded-lg p-8 text-center cursor-pointer
+          w-full max-w-4xl mx-auto
+          border-2 border-dashed rounded-2xl
+          px-6 py-12 sm:px-8 sm:py-16 lg:px-10 lg:py-20
+          min-h-[200px] sm:min-h-[240px] lg:min-h-[280px]
+          text-center cursor-pointer
+          flex flex-col items-center justify-center
           transition-all duration-200 hover:border-blue-400 hover:bg-blue-50
           ${getStatusColor()}
           ${(uploadStatus.type === 'uploading' || uploadStatus.type === 'success') ? 'cursor-not-allowed' : ''}
         `}
-        whileHover={uploadStatus.type === 'idle' ? { scale: 1.02 } : undefined}
-        whileTap={uploadStatus.type === 'idle' ? { scale: 0.98 } : undefined}
+        whileHover={uploadStatus.type === 'idle' ? { scale: 1.01 } : undefined}
+        whileTap={uploadStatus.type === 'idle' ? { scale: 0.99 } : undefined}
         onClick={rootProps.onClick}
         onKeyDown={rootProps.onKeyDown}
         role={rootProps.role}
@@ -260,11 +265,11 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
       >
         <input {...getInputProps()} />
         
-        <div className="flex flex-col items-center space-y-4">
+        <div className="flex flex-col items-center justify-center space-y-4 text-center">
           {getStatusIcon()}
           
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            <h3 className="text-xl sm:text-2xl font-semibold text-gray-900 mb-2">
               {uploadStatus.type === 'idle' && (isDragActive ? 'Drop your PDF here' : 'Upload a PDF file')}
               {uploadStatus.type === 'uploading' && 'Processing...'}
               {uploadStatus.type === 'success' && 'Success!'}
@@ -272,7 +277,7 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
             </h3>
             
             {uploadStatus.type === 'idle' && (
-              <p className="text-gray-500">
+              <p className="text-gray-500 text-sm sm:text-base">
                 Drag and drop a PDF file here, or click to browse
                 <br />
                 <span className="text-sm">Maximum file size: 10MB</span>
