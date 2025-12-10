@@ -246,7 +246,7 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
     <div className="w-full">
       <motion.div
         className={`
-          w-full max-w-4xl mx-auto
+          w-full
           border-2 border-dashed rounded-2xl
           px-6 py-12 sm:px-8 sm:py-16 lg:px-10 lg:py-20
           min-h-[200px] sm:min-h-[240px] lg:min-h-[280px]
