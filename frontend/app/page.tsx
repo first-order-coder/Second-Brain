@@ -1,7 +1,7 @@
 "use client"
 import { useCallback, useState } from 'react'
 import { motion } from 'framer-motion'
-import { BookOpen, Sparkles, Layers, Upload, FileUp, Brain, Link as LinkIcon, Youtube, FileText } from 'lucide-react'
+import { BookOpen, Sparkles, Layers } from 'lucide-react'
 import PDFUpload from '@/components/PDFUpload'
 import YTToCards from '@/components/YTToCards'
 import { useRouter } from 'next/navigation'
@@ -168,29 +168,8 @@ export default function Page() {
         </div>
       </section>
 
-      {/* SUPPORTING SECTION: Supported sources */}
-      <section className="border-t border-slate-200 dark:border-slate-700/50">
-        <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
-          {/* Supported sources */}
-          <div>
-            <div className="sb-kicker mb-3">Supported sources</div>
-            <div className="flex flex-wrap gap-2">
-              <span className="sb-pill">
-                <LinkIcon className="w-4 h-4 text-blue-500" /> URL
-              </span>
-              <span className="sb-pill">
-                <FileText className="w-4 h-4 text-blue-500" /> PDF
-              </span>
-              <span className="sb-pill">
-                <Youtube className="w-4 h-4 text-blue-500" /> YouTube
-              </span>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* YOUTUBE IMPORT SECTION */}
-      <section className="border-t border-slate-200 dark:border-slate-700/50">
+      <section>
         <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
           <motion.div
             initial={{ opacity: 0, y: 8 }}
