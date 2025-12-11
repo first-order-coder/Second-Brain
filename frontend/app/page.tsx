@@ -97,7 +97,7 @@ export default function Page() {
   return (
     <main className="flex-1">
       {/* HERO SECTION: Centered heading + large upload area */}
-      <section className="sb-section pt-12 pb-8 sm:pt-16 sm:pb-12">
+      <section className="pt-8 pb-6 sm:pt-10 sm:pb-8">
         <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8">
           {/* Centered Hero Text */}
           <div className="text-center">
@@ -105,7 +105,7 @@ export default function Page() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3 }}
-              className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-slate-900 dark:text-white"
+              className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-slate-900 dark:text-white"
             >
               Learn faster. Remember longer.
             </motion.h1>
@@ -113,7 +113,7 @@ export default function Page() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.35, delay: 0.05 }}
-              className="mt-4 text-base sm:text-lg leading-relaxed sb-muted dark:text-slate-300 max-w-2xl mx-auto"
+              className="mt-3 text-base sm:text-lg leading-relaxed sb-muted dark:text-slate-300 max-w-2xl mx-auto"
             >
               Second Brain turns PDFs, links, and videos into reliable notes and exam-ready flashcards—with spaced repetition built in.
             </motion.p>
@@ -124,9 +124,9 @@ export default function Page() {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, delay: 0.1 }}
-            className="mt-10 w-full"
+            className="mt-6 w-full"
           >
-            <div className="sb-surface-2 sb-surface-hover p-4 sm:p-6">
+            <div className="sb-surface-2 sb-surface-hover p-3 sm:p-4">
               <PDFUpload 
                 onUploadSuccess={handleUploadSuccess}
                 onUploadStart={() => setIsUploading(true)}
@@ -140,9 +140,9 @@ export default function Page() {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, delay: 0.15 }}
-            className="mt-6 w-full"
+            className="mt-4 w-full"
           >
-            <div className="sb-surface-2 sb-surface-hover p-4 sm:p-6">
+            <div className="sb-surface-2 sb-surface-hover p-3 sm:p-4">
               <YTToCards />
             </div>
           </motion.div>
@@ -151,12 +151,12 @@ export default function Page() {
 
       {/* HOW IT WORKS SECTION: Three steps - directly below upload */}
       <section className="border-t border-slate-200 dark:border-slate-700/50 sb-band">
-        <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6 sm:py-12 lg:px-8">
+        <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
           <motion.h2
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: 0.15 }}
-            className="text-center text-xl sm:text-2xl font-semibold text-slate-900 dark:text-white"
+            className="text-center text-lg sm:text-xl font-semibold text-slate-900 dark:text-white"
           >
             How Second Brain Works
           </motion.h2>
@@ -165,19 +165,19 @@ export default function Page() {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, delay: 0.2 }}
-            className="mt-8 grid gap-6 sm:gap-8 md:grid-cols-3"
+            className="mt-6 grid gap-4 sm:gap-6 md:grid-cols-3"
           >
-            <div className="sb-surface-1 sb-surface-hover p-5 sm:p-6 text-center">
+            <div className="sb-surface-1 sb-surface-hover p-4 sm:p-5 text-center">
               <div className="sb-kicker">1. Import</div>
               <p className="mt-2 text-sm sb-muted dark:text-slate-300">Drop a PDF, paste a link, or add a YouTube video.</p>
             </div>
 
-            <div className="sb-surface-1 sb-surface-hover p-5 sm:p-6 text-center">
+            <div className="sb-surface-1 sb-surface-hover p-4 sm:p-5 text-center">
               <div className="sb-kicker">2. Generate</div>
               <p className="mt-2 text-sm sb-muted dark:text-slate-300">We parse, cite, and create 10 study-ready flashcards.</p>
             </div>
 
-            <div className="sb-surface-1 sb-surface-hover p-5 sm:p-6 text-center">
+            <div className="sb-surface-1 sb-surface-hover p-4 sm:p-5 text-center">
               <div className="sb-kicker">3. Review</div>
               <p className="mt-2 text-sm sb-muted dark:text-slate-300">Reveal → grade (1–4) with spaced repetition.</p>
             </div>

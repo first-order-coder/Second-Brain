@@ -248,8 +248,8 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
         className={`
           w-full
           border-2 border-dashed rounded-2xl
-          px-6 py-12 sm:px-8 sm:py-16 lg:px-10 lg:py-20
-          min-h-[200px] sm:min-h-[240px] lg:min-h-[280px]
+          px-6 py-8 sm:px-8 sm:py-10 lg:px-10 lg:py-12
+          min-h-[160px] sm:min-h-[180px] lg:min-h-[200px]
           text-center cursor-pointer
           flex flex-col items-center justify-center
           transition-all duration-200 hover:border-blue-400 hover:bg-blue-50
