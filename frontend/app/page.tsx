@@ -89,11 +89,6 @@ export default function Page() {
     router.push(`/flashcards/${pdfId}?${query.toString()}`);
   }, [router, saveDeckSilently])
 
-  const loadDemo = () => {
-    // TODO: route to a seeded demo deck or query param
-    router.push('/flashcards/demo')
-  }
-
   return (
     <main className="flex-1">
       {/* HERO SECTION: Centered heading + large upload area */}
@@ -173,35 +168,22 @@ export default function Page() {
         </div>
       </section>
 
-      {/* SUPPORTING SECTION: Supported sources + Demo */}
+      {/* SUPPORTING SECTION: Supported sources */}
       <section className="border-t border-slate-200 dark:border-slate-700/50">
         <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
-          <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
-            {/* Supported sources */}
-            <div>
-              <div className="sb-kicker mb-3">Supported sources</div>
-              <div className="flex flex-wrap gap-2">
-                <span className="sb-pill">
-                  <LinkIcon className="w-4 h-4 text-blue-500" /> URL
-                </span>
-                <span className="sb-pill">
-                  <FileText className="w-4 h-4 text-blue-500" /> PDF
-                </span>
-                <span className="sb-pill">
-                  <Youtube className="w-4 h-4 text-blue-500" /> YouTube
-                </span>
-              </div>
-            </div>
-
-            {/* Demo panel */}
-            <div className="md:max-w-sm sb-surface-2 sb-surface-hover sb-elevated p-5 sm:p-6 flex items-center justify-between gap-4">
-              <div>
-                <div className="font-semibold text-slate-900 dark:text-white">No file handy?</div>
-                <p className="mt-1 text-sm sb-muted dark:text-slate-300">Load a sample deck to see the review flow in action.</p>
-              </div>
-              <button onClick={loadDemo} className="inline-flex items-center rounded-xl px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-500 shrink-0">
-                See a live demo
-              </button>
+          {/* Supported sources */}
+          <div>
+            <div className="sb-kicker mb-3">Supported sources</div>
+            <div className="flex flex-wrap gap-2">
+              <span className="sb-pill">
+                <LinkIcon className="w-4 h-4 text-blue-500" /> URL
+              </span>
+              <span className="sb-pill">
+                <FileText className="w-4 h-4 text-blue-500" /> PDF
+              </span>
+              <span className="sb-pill">
+                <Youtube className="w-4 h-4 text-blue-500" /> YouTube
+              </span>
             </div>
           </div>
         </div>
