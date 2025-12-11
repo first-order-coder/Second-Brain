@@ -134,18 +134,6 @@ export default function Page() {
               />
             </div>
           </motion.div>
-
-          {/* YouTube Import Below */}
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35, delay: 0.15 }}
-            className="mt-4 w-full"
-          >
-            <div className="sb-surface-2 sb-surface-hover p-3 sm:p-4">
-              <YTToCards />
-            </div>
-          </motion.div>
         </div>
       </section>
 
@@ -216,6 +204,22 @@ export default function Page() {
               </button>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* YOUTUBE IMPORT SECTION */}
+      <section className="border-t border-slate-200 dark:border-slate-700/50">
+        <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, delay: 0.15 }}
+            className="w-full"
+          >
+            <div className="sb-surface-2 sb-surface-hover p-3 sm:p-4">
+              <YTToCards />
+            </div>
+          </motion.div>
         </div>
       </section>
 
