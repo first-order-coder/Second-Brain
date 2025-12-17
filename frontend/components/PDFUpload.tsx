@@ -237,7 +237,7 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
       default:
         return isDragActive 
           ? 'border-blue-300 bg-blue-50' 
-          : 'border-gray-300 bg-white'
+          : 'border-blue-200 bg-white'
     }
   }
 
