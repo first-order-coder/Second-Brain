@@ -37,7 +37,7 @@ html, body {
 
 :root {
   /* Modern soft light theme: Blue-tinted & Fresh */
-  --background: 220 25% 90%;       /* Significantly darker: Soft, cool light gray/blue (Slate 100 range) */
+  --background: 220 20% 88%;       /* Much darker: Light Steel/Gray Blue */
   --foreground: 224 71.4% 4.1%;    /* Deep Navy/Black */
   
   --card: 0 0% 100%;               /* Pure white cards */
@@ -49,20 +49,20 @@ html, body {
   --primary: 221.2 83.2% 53.3%;    /* Vibrant Modern Blue */
   --primary-foreground: 210 40% 98%;
   
-  --secondary: 220 20% 86%;        /* Darker than bg for contrast */
+  --secondary: 220 15% 82%;        /* Darker contrast for inputs/secondary */
   --secondary-foreground: 222.2 47.4% 11.2%;
   
-  --muted: 220 20% 86%;            /* Darker than bg for contrast */
+  --muted: 220 15% 82%;            /* Darker contrast for muted */
   --muted-foreground: 215.4 16.3% 46.9%;
   
-  --accent: 220 20% 86%;           /* Hover state background */
+  --accent: 220 15% 82%;           /* Darker contrast for accents */
   --accent-foreground: 222.2 47.4% 11.2%;
   
   --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 210 40% 98%;
   
-  --border: 220 15% 84%;           /* Stronger border for darker bg */
-  --input: 220 15% 84%;
+  --border: 220 15% 80%;           /* Strong border for distinct separation */
+  --input: 220 15% 80%;
   --ring: 221.2 83.2% 53.3%;       /* Focus ring matches primary */
   
   --radius: 0.75rem;               /* 12px - Modern, friendly rounded corners */
