@@ -159,29 +159,29 @@ body {
 }
 
 /* ---------- SURFACE SYSTEM (Light-focused) ---------- */
-/* Base page background is already slate-50; we add layered surfaces for contrast. */
+/* Base page background is slate-50; we use blue-tinted surfaces for contrast. */
 
 .sb-surface-0 { /* plain container (hero text areas) */
   @apply bg-transparent;
 }
 
 .sb-surface-1 { /* soft panel (quick start, pills, small panels) */
-  @apply rounded-2xl bg-slate-100 border border-slate-200/80 shadow-sm;
+  @apply rounded-2xl bg-blue-50/50 border border-blue-100 shadow-sm;
 }
 .dark .sb-surface-1 { @apply bg-slate-900/60 border-white/10; }
 
 .sb-surface-2 { /* prominent card (uploader box, feature highlights, demo panel) */
-  @apply rounded-2xl bg-white border border-slate-200 shadow;
+  @apply rounded-2xl bg-white border border-blue-100 shadow-sm shadow-blue-900/5;
 }
 .dark .sb-surface-2 { @apply bg-slate-900/60 border-white/10 shadow-none; }
 
 .sb-surface-hover { /* subtle lift on hover for Light */
-  @apply transition-colors hover:border-slate-300;
+  @apply transition-all duration-200 hover:border-blue-200 hover:shadow-md hover:shadow-blue-900/10;
 }
 
 /* Pills / chips that sit on surfaces */
 .sb-pill {
-  @apply inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700;
+  @apply inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white px-3 py-1.5 text-sm text-slate-700;
 }
 .dark .sb-pill { @apply border-white/10 bg-slate-900/60 text-slate-300; }
 
@@ -189,21 +189,21 @@ body {
 .sb-section { @apply py-12 sm:py-16; }
 
 /* Typographic helpers */
-.sb-kicker { @apply text-xs font-medium tracking-wide uppercase text-slate-500; }
+.sb-kicker { @apply text-xs font-semibold tracking-wide uppercase text-blue-600/80; }
 .sb-muted  { @apply text-slate-600; }
 
 /* --- BAND BACKGROUNDS (Light-only) --- */
 /* A soft band that spans full width behind card sections */
 .sb-band {
-  @apply bg-slate-100;
+  @apply bg-slate-50 border-y border-blue-50;
 }
 .dark .sb-band {
-  @apply bg-transparent;
+  @apply bg-transparent border-none;
 }
 
 /* Optional gradient band for more depth (use on features if preferred) */
 .sb-band-grad {
-  @apply bg-gradient-to-b from-slate-100 to-slate-50;
+  @apply bg-gradient-to-b from-blue-50/30 to-white;
 }
 .dark .sb-band-grad {
   @apply from-transparent to-transparent;
@@ -211,18 +211,18 @@ body {
 
 /* Slightly stronger elevation than sb-surface-2 without being heavy */
 .sb-elevated {
-  @apply ring-1 ring-slate-200 shadow-md;
+  @apply ring-1 ring-blue-100 shadow-md shadow-blue-900/5;
 }
 .dark .sb-elevated {
   @apply ring-white/10 shadow-none;
 }
 
 /* ---- Light mode helpers for landing polish (non-invasive) ---- */
-.sb-card { @apply rounded-2xl border border-slate-200/80 bg-white shadow-sm; }
-.sb-card-hover { @apply transition-colors hover:border-slate-300; }
+.sb-card { @apply rounded-2xl border border-blue-100 bg-white shadow-sm shadow-blue-900/5; }
+.sb-card-hover { @apply transition-all hover:border-blue-300 hover:shadow-blue-900/10; }
 .sb-muted { @apply text-slate-600; }
 .sb-quiet { @apply text-slate-500; }
-.sb-kicker { @apply text-xs font-medium tracking-wide uppercase text-slate-500; }
+.sb-kicker { @apply text-xs font-semibold tracking-wide uppercase text-blue-600/80; }
 .sb-section { @apply py-12 sm:py-16; }
-.sb-btn-primary { @apply inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-500; }
-.sb-btn-secondary { @apply inline-flex items-center justify-center rounded-xl px-3 py-1.5 text-sm border border-slate-300 bg-white text-slate-700 hover:bg-slate-50; }
+.sb-btn-primary { @apply inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-500 shadow-sm shadow-blue-600/20; }
+.sb-btn-secondary { @apply inline-flex items-center justify-center rounded-xl px-3 py-1.5 text-sm border border-blue-200 bg-white text-slate-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 transition-colors; }
