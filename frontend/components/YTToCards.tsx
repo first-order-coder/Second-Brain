@@ -12,6 +12,8 @@ import { Separator } from "@/components/ui/separator";
 import { YouTubeFlashcardsResponse } from "@/lib/types";
 import { apiGet, apiPost, apiPut, ApiError } from "@/lib/apiClient";
 import { ErrorAlert } from "@/components/ui/ErrorAlert";
+import { useAuth } from "@/lib/auth";
+import LoginModal from "@/components/auth/LoginModal";
 
 type CardItem = {
   front: string; 
@@ -26,6 +28,8 @@ type CardItem = {
 
 export default function YTToCards() {
   const router = useRouter();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const [mode, setMode] = useState<"auto" | "manual">("auto"); // Mode selector: Auto or Manual transcript
   const [url, setUrl] = useState("");
   // Fixed 10 cards for YouTube - no count selector needed
@@ -182,6 +186,12 @@ export default function YTToCards() {
   }, [router, saveDeckSilently]);
 
   async function onGenerate() {
+    // Check auth before proceeding
+    if (!isAuthenticated) {
+      setShowLoginModal(true);
+      return;
+    }
+    
     setLoading(true); 
     setError(null); 
     setResp(null);
@@ -217,6 +227,13 @@ export default function YTToCards() {
       if (err instanceof Error) {
         errorMessage = err.message;
         
+        // Handle 401 auth errors
+        const errorStatus = 'status' in err ? (err as any).status : null;
+        if (errorStatus === 401) {
+          errorMessage = "Please sign in to generate flashcards.";
+          setShowLoginModal(true);
+        }
+        
         // Check if error has nextSteps (from ApiError)
         if ('nextSteps' in err && Array.isArray(err.nextSteps)) {
           nextSteps = err.nextSteps;
@@ -245,6 +262,12 @@ export default function YTToCards() {
   }
 
   async function onGenerateFromTranscript() {
+    // Check auth before proceeding
+    if (!isAuthenticated) {
+      setShowLoginModal(true);
+      return;
+    }
+    
     // Validate transcript text
     const trimmedTranscript = transcriptText.trim();
     if (!trimmedTranscript) {
@@ -299,6 +322,13 @@ export default function YTToCards() {
       
       if (err instanceof Error) {
         errorMessage = err.message;
+        
+        // Handle 401 auth errors
+        const errorStatus = 'status' in err ? (err as any).status : null;
+        if (errorStatus === 401) {
+          errorMessage = "Please sign in to generate flashcards.";
+          setShowLoginModal(true);
+        }
         
         // Check if error has nextSteps (from ApiError)
         if ('nextSteps' in err && Array.isArray(err.nextSteps)) {
@@ -591,6 +621,25 @@ export default function YTToCards() {
           </div>
         </>
       ) : null}
+      
+      {/* Auth prompt for unauthenticated users */}
+      {!isAuthenticated && !authLoading && (
+        <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-center">
+          <p className="text-sm text-blue-700 dark:text-blue-300 mb-2">
+            Sign in to generate flashcards from YouTube videos
+          </p>
+          <Button 
+            variant="default" 
+            onClick={() => setShowLoginModal(true)}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            Sign in
+          </Button>
+        </div>
+      )}
+      
+      {/* Login Modal */}
+      <LoginModal open={showLoginModal} onOpenChange={setShowLoginModal} />
     </UICard>
   );
 }

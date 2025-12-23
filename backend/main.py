@@ -339,14 +339,14 @@ async def startup_event():
 @app.post("/upload-pdf")
 async def upload_pdf(
     file: UploadFile = File(...),
-    x_user_id: Optional[str] = Header(None, alias="X-User-Id")
+    user_id: str = Depends(get_current_user)
 ):
     """Upload a PDF file and return its ID
     
-    Optional header: X-User-Id - Supabase auth user ID for deck creation
+    SECURITY: Requires authentication via Authorization header.
     """
     
-    print(f"Received upload request: filename={file.filename}, content_type={file.content_type}, size={file.size}, user_id={x_user_id}")
+    print(f"Received upload request: filename={file.filename}, content_type={file.content_type}, size={file.size}, user_id={user_id}")
     
     try:
         # Validate file type (more flexible check)
@@ -384,10 +384,13 @@ async def upload_pdf(
         print(f"Database record created for PDF ID: {pdf_id}")
         
         # Store user_id for later use in deck creation
-        # We'll pass it through the generate-flashcards endpoint
-        response_data = {"pdf_id": pdf_id, "filename": file.filename, "status": "uploaded"}
-        if x_user_id:
-            response_data["user_id"] = x_user_id
+        # User is now authenticated, always include user_id
+        response_data = {
+            "pdf_id": pdf_id, 
+            "filename": file.filename, 
+            "status": "uploaded",
+            "user_id": user_id
+        }
         
         return response_data
         

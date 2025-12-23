@@ -1,12 +1,13 @@
 'use client'
 
-import { useCallback, useState, useEffect } from 'react'
+import { useCallback, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, FileText, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
+import { Upload, FileText, CheckCircle, AlertCircle, Loader2, LogIn } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiUpload, apiPost, apiGet, ApiError } from '@/lib/apiClient'
-import { createClient } from '@/lib/supabase/client'
+import { useAuth } from '@/lib/auth'
 import { ErrorAlert } from '@/components/ui/ErrorAlert'
+import LoginModal from '@/components/auth/LoginModal'
 
 interface PDFUploadProps {
   onUploadSuccess: (pdfId: string, filename?: string | null) => void
@@ -24,23 +25,23 @@ interface UploadStatus {
 export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd }: PDFUploadProps) {
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>({ type: 'idle' })
   const [currentFilename, setCurrentFilename] = useState<string | null>(null)
-  const [userId, setUserId] = useState<string | null>(null)
-
-  // Get user ID from Supabase on mount
-  useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) {
-        setUserId(user.id)
-      }
-    })
-  }, [])
+  const [showLoginModal, setShowLoginModal] = useState(false)
+  
+  // Get auth state from context
+  const { isAuthenticated, isLoading: authLoading, user } = useAuth()
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0]
     if (!file) return
+    
+    // Check authentication before proceeding
+    if (!isAuthenticated) {
+      setShowLoginModal(true)
+      return
+    }
+    
     const filename = file.name.replace(/\.pdf$/i, '') // Remove .pdf extension for title
-    console.log("[PDFUpload] File dropped:", { originalName: file.name, extractedFilename: filename });
+    console.log("[PDFUpload] File dropped:", { originalName: file.name, extractedFilename: filename, userId: user?.id });
     setCurrentFilename(filename)
 
     // Validate file type
@@ -68,13 +69,8 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
       const formData = new FormData()
       formData.append('file', file)
 
-      // Add user_id header if available
-      const headers: HeadersInit = {}
-      if (userId) {
-        headers['X-User-Id'] = userId
-      }
-
-      const result = await apiUpload<{ pdf_id: string; filename: string; status: string }>('/upload-pdf', formData, { headers })
+      // Authorization header is now automatically added by apiClient via AuthSync
+      const result = await apiUpload<{ pdf_id: string; filename: string; status: string }>('/upload-pdf', formData)
       
       setUploadStatus({ 
         type: 'success', 
@@ -86,13 +82,27 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
       await generateFlashcards(result.pdf_id, filename)
       
     } catch (error) {
+      let errorMessage = 'Upload failed'
+      let errorDetails: string[] | undefined = undefined
+      
+      if (error instanceof Error) {
+        errorMessage = error.message
+        
+        // Handle auth errors specifically
+        if ('status' in error && (error as any).status === 401) {
+          errorMessage = 'Please sign in to upload PDFs.'
+          setShowLoginModal(true)
+        }
+      }
+      
       setUploadStatus({ 
         type: 'error', 
-        message: error instanceof Error ? error.message : 'Upload failed' 
+        message: errorMessage,
+        details: errorDetails
       })
       onUploadEnd()
     }
-  }, [onUploadSuccess, onUploadStart, onUploadEnd])
+  }, [isAuthenticated, user, onUploadSuccess, onUploadStart, onUploadEnd])
 
   const generateFlashcards = async (pdfId: string, filename: string) => {
     try {
@@ -101,13 +111,8 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
         message: 'Generating flashcards with AI...' 
       })
 
-      // Add user_id header if available
-      const headers: HeadersInit = {}
-      if (userId) {
-        headers['X-User-Id'] = userId
-      }
-
-      await apiPost(`/generate-flashcards/${pdfId}`, undefined, { headers })
+      // Authorization header is now automatically added by apiClient
+      await apiPost(`/generate-flashcards/${pdfId}`)
 
       // Poll for completion - capture filename in closure
       const pollStatus = async () => {
@@ -175,17 +180,21 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
         errorMessage = error.message;
         
         // Check if error has nextSteps (from ApiError)
-        if ('nextSteps' in error && Array.isArray(error.nextSteps)) {
-          errorDetails = error.nextSteps;
+        if ('nextSteps' in error && Array.isArray((error as any).nextSteps)) {
+          errorDetails = (error as any).nextSteps;
         }
         
-        // Provide helpful details for common generation errors
-        if (errorMessage.includes('quota') || errorMessage.includes('429')) {
-          errorDetails = ['AI service quota exceeded', 'Please try again later or contact support'];
-        } else if (errorMessage.includes('timeout') || errorMessage.includes('504')) {
+        // Handle specific error codes
+        const errorStatus = 'status' in error ? (error as any).status : null;
+        const errorCode = 'errorCode' in error ? (error as any).errorCode : null;
+        
+        if (errorStatus === 401) {
+          errorMessage = 'Please sign in to generate flashcards.';
+          setShowLoginModal(true);
+        } else if (errorStatus === 429 || errorCode === 'QUOTA_EXCEEDED') {
+          errorDetails = ['You\'ve reached your usage limit', 'Please try again later or upgrade your plan'];
+        } else if (errorMessage.includes('timeout') || errorStatus === 504) {
           errorDetails = ['The request took too long', 'Please try again with a smaller PDF'];
-        } else if (errorMessage.includes('auth') || errorMessage.includes('401')) {
-          errorDetails = ['AI service authentication failed', 'Please contact support'];
         }
       }
       
@@ -218,6 +227,9 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
       case 'error':
         return <AlertCircle className="w-10 h-10 sm:w-12 sm:h-12 text-red-500" />
       default:
+        if (!isAuthenticated && !authLoading) {
+          return <LogIn className="w-10 h-10 sm:w-12 sm:h-12 text-gray-400" />
+        }
         return isDragActive ? (
           <Upload className="w-10 h-10 sm:w-12 sm:h-12 text-blue-500" />
         ) : (
@@ -235,12 +247,47 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
       case 'error':
         return 'border-red-300 bg-red-50'
       default:
+        if (!isAuthenticated && !authLoading) {
+          return 'border-gray-300 bg-gray-50'
+        }
         return isDragActive 
           ? 'border-blue-300 bg-blue-50' 
           : 'border-blue-200 bg-white'
     }
   }
 
+  const getIdleMessage = () => {
+    if (authLoading) {
+      return 'Loading...'
+    }
+    if (!isAuthenticated) {
+      return 'Sign in to upload PDFs'
+    }
+    return isDragActive ? 'Drop your PDF here' : 'Upload a PDF file'
+  }
+
+  const getIdleDescription = () => {
+    if (authLoading) {
+      return 'Checking authentication...'
+    }
+    if (!isAuthenticated) {
+      return (
+        <>
+          <span className="text-blue-600 hover:text-blue-700 cursor-pointer" onClick={() => setShowLoginModal(true)}>
+            Sign in
+          </span>
+          {' '}to create flashcards from your PDFs
+        </>
+      )
+    }
+    return (
+      <>
+        Drag and drop a PDF file here, or click to browse
+        <br />
+        <span className="text-sm">Maximum file size: 10MB</span>
+      </>
+    )
+  }
 
   return (
     <div className="w-full">
@@ -258,19 +305,26 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
         `}
         whileHover={uploadStatus.type === 'idle' ? { scale: 1.01 } : undefined}
         whileTap={uploadStatus.type === 'idle' ? { scale: 0.99 } : undefined}
-        onClick={rootProps.onClick}
+        onClick={(e) => {
+          if (!isAuthenticated && !authLoading) {
+            e.stopPropagation()
+            setShowLoginModal(true)
+          } else if (rootProps.onClick) {
+            rootProps.onClick(e)
+          }
+        }}
         onKeyDown={rootProps.onKeyDown}
         role={rootProps.role}
         tabIndex={rootProps.tabIndex}
       >
-        <input {...getInputProps()} />
+        <input {...getInputProps()} disabled={!isAuthenticated} />
         
         <div className="flex flex-col items-center justify-center space-y-4 text-center">
           {getStatusIcon()}
           
           <div>
             <h3 className="text-xl sm:text-2xl font-semibold text-gray-900 mb-2">
-              {uploadStatus.type === 'idle' && (isDragActive ? 'Drop your PDF here' : 'Upload a PDF file')}
+              {uploadStatus.type === 'idle' && getIdleMessage()}
               {uploadStatus.type === 'uploading' && 'Processing...'}
               {uploadStatus.type === 'success' && 'Success!'}
               {uploadStatus.type === 'error' && 'Upload Failed'}
@@ -278,9 +332,7 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
             
             {uploadStatus.type === 'idle' && (
               <p className="text-gray-500 text-sm sm:text-base">
-                Drag and drop a PDF file here, or click to browse
-                <br />
-                <span className="text-sm">Maximum file size: 10MB</span>
+                {getIdleDescription()}
               </p>
             )}
           </div>
@@ -329,6 +381,9 @@ export default function PDFUpload({ onUploadSuccess, onUploadStart, onUploadEnd 
           Try Again
         </motion.button>
       )}
+      
+      {/* Login Modal */}
+      <LoginModal open={showLoginModal} onOpenChange={setShowLoginModal} />
     </div>
   )
 }

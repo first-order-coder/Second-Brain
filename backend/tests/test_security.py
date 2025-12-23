@@ -19,6 +19,8 @@ import pytest
 # IMPORTANT: Set test environment BEFORE importing app modules
 # This allows quota to pass in test environment without Supabase
 os.environ["QUOTA_FALLBACK_ALLOW"] = "true"
+# Allow X-User-Id header for testing (since we don't have real Supabase tokens in tests)
+os.environ["ALLOW_HEADER_AUTH_FALLBACK"] = "true"
 
 from fastapi.testclient import TestClient
 
