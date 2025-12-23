@@ -15,7 +15,7 @@ in Supabase for the "My Decks" feature.
 """
 import logging
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Depends
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 import httpx
 
@@ -23,9 +23,12 @@ from services.youtube_transcript import list_transcripts  # Still used for /trac
 from services.youtube_utils import clean_youtube_url
 from services.ytdlp_subs import YTDlpError, fetch_youtube_metadata, fetch_raw_vtt_with_ytdlp
 from services.transcript_cleaner import clean_transcript_with_openai, TranscriptCleaningError
+from services.llm_integration import generate_flashcards_from_excerpts
 from flashcard_generator import generate_flashcards  # Same function used for PDFs
 from repo.dual_repo import create_deck_in_supabase, upsert_flashcard, delete_flashcards
 from repo.supabase_transcripts import save_cleaned_transcript_to_supabase
+from security.auth import require_auth, get_optional_user
+from security.quota_rpc import enforce_quota
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +47,13 @@ class YouTubeFlashcardsRequest(BaseModel):
     # Pydantic v2 model config - explicitly allow extra fields to be ignored
     model_config = ConfigDict(extra="ignore")  # Ignore extra fields instead of raising validation error
     
-    url: str = Field(..., description="YouTube URL")
+    # SECURITY: Limit URL length to prevent abuse
+    url: str = Field(..., description="YouTube URL", max_length=2048)
     n_cards: int = Field(default=10, ge=1, le=20, description="Number of cards to generate")
     # Add-ONLY: Optional requested count for enhanced control
     requested_count: Optional[int] = Field(default=None, ge=1, le=50, description="Requested number of cards (overrides n_cards if provided)")
-    lang_hint: List[str] = Field(default=["en", "en-US", "en-GB"], description="Language preferences")
+    # SECURITY: Limit number of language hints
+    lang_hint: List[str] = Field(default=["en", "en-US", "en-GB"], description="Language preferences", max_length=10)
     allow_auto_generated: bool = Field(default=True, description="Allow auto-generated captions")
     use_cookies: bool = Field(default=False, description="Use cookies for authentication")
     enable_fallback: bool = Field(default=False, description="Enable yt-dlp fallback")
@@ -76,15 +81,10 @@ class YouTubeCard(BaseModel):
 
 class ManualTranscriptRequest(BaseModel):
     """Request model for manual transcript flashcard generation"""
-    url: Optional[str] = Field(default=None, description="YouTube URL (optional metadata)")
-    title: Optional[str] = Field(default=None, description="Optional deck title hint")
-    transcript: str = Field(..., description="Raw transcript text (required)")
-
-class ManualTranscriptRequest(BaseModel):
-    """Request model for manual transcript flashcard generation"""
-    url: Optional[str] = Field(default=None, description="YouTube URL (optional metadata)")
-    title: Optional[str] = Field(default=None, description="Optional deck title hint")
-    transcript: str = Field(..., description="Raw transcript text (required)")
+    url: Optional[str] = Field(default=None, description="YouTube URL (optional metadata)", max_length=2048)
+    title: Optional[str] = Field(default=None, description="Optional deck title hint", max_length=500)
+    # SECURITY: Limit transcript size to prevent cost attacks (50k chars ≈ 12k tokens)
+    transcript: str = Field(..., description="Raw transcript text (required)", max_length=50000)
 
 class YouTubeFlashcardsResponse(BaseModel):
     video_id: str
@@ -180,10 +180,13 @@ async def fetch_youtube_title(url: str) -> Optional[str]:
 @router.post("/flashcards", response_model=YouTubeFlashcardsResponse)
 async def generate_youtube_flashcards(
     request: YouTubeFlashcardsRequest,
-    x_user_id: Optional[str] = Header(None, alias="X-User-Id")
+    user_id: str = Depends(enforce_quota)  # SECURITY: Auth + quota in one dependency
 ):
     """
     Generate flashcards from YouTube video transcript.
+    
+    SECURITY: Requires authentication (X-User-Id header)
+    SECURITY: Uses Supabase RPC for atomic quota check (runs BEFORE OpenAI)
     
     Pipeline:
     1. Extract video ID + title
@@ -193,13 +196,13 @@ async def generate_youtube_flashcards(
     5. Create deck in Supabase
     6. Generate flashcards from cleaned transcript (same as PDFs)
     7. Store flashcards in Supabase
-    
-    Optional header: X-User-Id - Supabase auth user ID for deck creation in "My Decks"
     """
+    # NOTE: Quota was already consumed atomically by enforce_quota dependency
     warnings = []
+    x_user_id = user_id  # For backward compatibility with existing code
     try:
         # Log incoming request
-        logger.info(f"Received YouTube flashcards request: url={request.url[:80]}, user_id={x_user_id}")
+        logger.info(f"Received YouTube flashcards request: url={request.url[:80]}, user_id={user_id}")
         
         # Clean and normalize the URL
         clean_url = clean_youtube_url(request.url)
@@ -257,6 +260,7 @@ async def generate_youtube_flashcards(
             logger.info(f"Cleaning transcript via OpenAI: {len(raw_vtt)} chars raw VTT")
             cleaned_transcript = clean_transcript_with_openai(raw_vtt)
             logger.info(f"Cleaned transcript: {len(cleaned_transcript)} characters")
+            # NOTE: Quota already consumed atomically by enforce_quota
         except TranscriptCleaningError as e:
             logger.error(f"Failed to clean transcript: {e}")
             raise HTTPException(
@@ -323,6 +327,7 @@ async def generate_youtube_flashcards(
             logger.info(f"Generating flashcards from cleaned transcript: {len(cleaned_transcript)} chars")
             flashcards_data = generate_flashcards(cleaned_transcript)
             logger.info(f"Generated {len(flashcards_data)} flashcards")
+            # NOTE: Quota already consumed atomically by enforce_quota
         except Exception as e:
             logger.error(f"Flashcard generation failed: {e}", exc_info=True)
             raise HTTPException(
@@ -407,14 +412,17 @@ async def generate_youtube_flashcards(
 @router.post("/transcript-flashcards", response_model=YouTubeFlashcardsResponse)
 async def generate_flashcards_from_manual_transcript(
     request: ManualTranscriptRequest,
-    x_user_id: Optional[str] = Header(None, alias="X-User-Id")
+    user_id: str = Depends(enforce_quota)  # SECURITY: Auth + quota in one dependency
 ):
     """
     Generate flashcards from manually pasted transcript text.
     This endpoint allows users to paste transcript text when automatic YouTube caption fetching fails.
     
-    Optional header: X-User-Id - Supabase auth user ID for deck creation in "My Decks"
+    SECURITY: Requires authentication (X-User-Id header)
+    SECURITY: Uses Supabase RPC for atomic quota check (runs BEFORE OpenAI)
     """
+    # NOTE: Quota was already consumed atomically by enforce_quota dependency
+    x_user_id = user_id  # For backward compatibility
     try:
         # Validate transcript is non-empty
         transcript_text = request.transcript.strip()
@@ -517,6 +525,7 @@ async def generate_flashcards_from_manual_transcript(
         # Generate flashcards using LLM (same as YouTube flow)
         try:
             raw_cards = generate_flashcards_from_excerpts(excerpts_json, target_count, target_count)
+            # NOTE: Quota already consumed atomically by enforce_quota
         except Exception as e:
             logger.error(f"LLM flashcard generation failed for manual transcript: {e}")
             raise HTTPException(status_code=500, detail="Failed to generate flashcards from transcript.")

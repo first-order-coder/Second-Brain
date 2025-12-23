@@ -5,17 +5,23 @@ import json
 import logging
 import os
 from typing import Dict, List, Any
+import httpx
 import openai
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
+
+# SECURITY: OpenAI configuration
+OPENAI_TIMEOUT_SECONDS = int(os.getenv("OPENAI_TIMEOUT_SECONDS", "60"))
 
 def call_llm_json(system_prompt: str, user_prompt: str) -> Dict[str, Any]:
     """
     Call OpenAI API and return STRICT JSON response.
     """
     try:
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        # SECURITY: Use HTTP client with timeout
+        http_client = httpx.Client(timeout=OPENAI_TIMEOUT_SECONDS)
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), http_client=http_client)
         
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -25,7 +31,8 @@ def call_llm_json(system_prompt: str, user_prompt: str) -> Dict[str, Any]:
             ],
             temperature=0.3,
             max_tokens=2000,
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            timeout=OPENAI_TIMEOUT_SECONDS,  # SECURITY: Prevent hanging requests
         )
         
         content = response.choices[0].message.content

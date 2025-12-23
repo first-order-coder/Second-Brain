@@ -6,8 +6,12 @@ import logging
 import sqlite3
 from typing import List, Dict, Tuple, Optional
 from pathlib import Path
+import httpx
 from openai import OpenAI, AuthenticationError, RateLimitError, APITimeoutError, APIError
 from pdf_processor import extract_text_from_pdf
+
+# SECURITY: OpenAI configuration
+OPENAI_TIMEOUT_SECONDS = int(os.getenv("OPENAI_TIMEOUT_SECONDS", "60"))
 from models import Base, Summary, SummarySentence, SummarySentenceCitation
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -32,11 +36,13 @@ TOP_K = int(os.getenv("SUMMARY_EVIDENCE_TOPK", "6"))
 THRESH = float(os.getenv("SUMMARY_SUPPORT_THRESHOLD", "0.74"))
 
 def get_openai_client():
-    """Get OpenAI client with error handling"""
+    """Get OpenAI client with error handling and timeout configuration"""
     api_key = os.getenv('OPENAI_API_KEY')
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY environment variable is required")
-    return OpenAI(api_key=api_key)
+    # SECURITY: Use HTTP client with timeout
+    http_client = httpx.Client(timeout=OPENAI_TIMEOUT_SECONDS)
+    return OpenAI(api_key=api_key, http_client=http_client)
 
 def get_chunks_for_source(source_id: str) -> List[Dict]:
     """Get chunks for a source"""
@@ -105,7 +111,8 @@ Text to summarize:
             ],
             temperature=0.7,
             max_tokens=2000,
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            timeout=OPENAI_TIMEOUT_SECONDS,  # SECURITY: Prevent hanging requests
         )
         
         response_content = response.choices[0].message.content

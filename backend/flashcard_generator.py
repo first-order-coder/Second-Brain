@@ -2,6 +2,7 @@ import os
 import json
 import re
 from typing import List, Dict
+import httpx
 from openai import OpenAI
 from openai import RateLimitError, OpenAIError, APIError, APITimeoutError, AuthenticationError
 from fastapi import HTTPException
@@ -10,6 +11,10 @@ import logging
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# SECURITY: OpenAI timeout configuration
+OPENAI_TIMEOUT_SECONDS = int(os.getenv("OPENAI_TIMEOUT_SECONDS", "60"))
+MAX_INPUT_CHARS = int(os.getenv("MAX_INPUT_CHARS", "8000"))
 
 def clean_json_response(response_text: str) -> str:
     """
@@ -91,10 +96,8 @@ def generate_flashcards(text_content: str) -> List[Dict[str, str]]:
     
     try:
         # Initialize OpenAI client with custom HTTP client to avoid proxies issue
-        import httpx
-        
-        # Create a custom HTTP client without proxies
-        http_client = httpx.Client()
+        # SECURITY: Add timeout to prevent hanging requests
+        http_client = httpx.Client(timeout=OPENAI_TIMEOUT_SECONDS)
         
         client = OpenAI(api_key=api_key, http_client=http_client)
         logger.info("✅ OpenAI client initialized successfully")
@@ -108,10 +111,10 @@ def generate_flashcards(text_content: str) -> List[Dict[str, str]]:
             detail="Failed to initialize AI service, please try again later"
         )
     
-    # Truncate text if too long (OpenAI has token limits)
-    max_chars = 8000  # Conservative limit to stay within token bounds
-    if len(text_content) > max_chars:
-        text_content = text_content[:max_chars] + "..."
+    # SECURITY: Truncate text if too long (OpenAI has token limits, prevents cost attacks)
+    if len(text_content) > MAX_INPUT_CHARS:
+        logger.warning(f"Truncating input from {len(text_content)} to {MAX_INPUT_CHARS} chars")
+        text_content = text_content[:MAX_INPUT_CHARS] + "..."
     
     prompt = f"""From this PDF content, create exactly 10 high-quality flashcards.
 
@@ -141,7 +144,8 @@ Your response must be valid JSON starting with [ and ending with ]:"""
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
-            max_tokens=2000
+            max_tokens=2000,
+            timeout=OPENAI_TIMEOUT_SECONDS,  # SECURITY: Prevent hanging requests
         )
         logger.info("✅ OpenAI API call successful")
         

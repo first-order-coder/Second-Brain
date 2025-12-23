@@ -2,7 +2,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, D
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 import os
 import uuid
@@ -23,6 +23,11 @@ from repo.dual_repo import (
     delete_flashcards, execute_dual_write_sql, create_deck_in_supabase, get_pdf_filename,
     update_pdf_status
 )
+from middleware.security import RateLimitMiddleware, RequestSizeLimitMiddleware
+from security.auth import get_current_user, get_optional_user, require_auth
+from security.quotas import check_quota, increment_quota, QuotaExceededError
+from security.quota_rpc import enforce_quota, QuotaExceededError as RPCQuotaExceededError, QuotaCheckError
+from security.ownership import assert_deck_owner, assert_source_owner
 
 # Load environment variables
 load_dotenv()
@@ -50,10 +55,16 @@ from routes.youtube_cards import router as youtube_cards_router
 
 app = FastAPI(title="PDF to Flashcards API", version="1.0.0")
 
-# Add exception handler for validation errors to improve logging
+# ============================================================================
+# SECURITY: Centralized Exception Handlers
+# ============================================================================
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Log validation errors in detail for debugging"""
+    """
+    Handle validation errors with clean JSON response.
+    SECURITY: Does not expose internal details in production.
+    """
     errors = exc.errors()
     error_details = []
     for error in errors:
@@ -63,26 +74,97 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "type": error.get("type")
         })
     
-    # Log the full validation error
+    # Log the full validation error (server-side only)
     logging.error(f"Validation error on {request.method} {request.url.path}: {error_details}")
     
-    # Try to log request body (may have already been consumed)
-    try:
-        body = await request.body()
-        if body:
-            logging.error(f"Request body: {body.decode('utf-8', errors='replace')[:500]}")
-    except Exception as e:
-        logging.warning(f"Could not read request body for logging: {e}")
-    
-    # Return standard FastAPI validation error response
-    from fastapi.responses import JSONResponse
+    # Return clean error response without internal details
     return JSONResponse(
         status_code=422,
         content={
-            "detail": errors,
-            "message": f"Validation error: {len(errors)} field(s) invalid. Check 'detail' for specifics."
+            "error_code": "VALIDATION_ERROR",
+            "message": f"Validation error: {len(errors)} field(s) invalid.",
+            "detail": error_details
         }
     )
+
+
+@app.exception_handler(QuotaExceededError)
+async def quota_exceeded_handler(request: Request, exc: QuotaExceededError):
+    """Handle quota exceeded errors with clean 429 response."""
+    return JSONResponse(
+        status_code=429,
+        content={
+            "error_code": "QUOTA_EXCEEDED",
+            "message": str(exc),
+            "quota_type": getattr(exc, 'quota_type', 'unknown'),
+            "limit": getattr(exc, 'limit', 0),
+            "used": getattr(exc, 'used', 0),
+            "reset_time": exc.reset_time.isoformat() if hasattr(exc, 'reset_time') and exc.reset_time else None
+        }
+    )
+
+
+@app.exception_handler(RPCQuotaExceededError)
+async def rpc_quota_exceeded_handler(request: Request, exc: RPCQuotaExceededError):
+    """Handle RPC quota exceeded errors with clean 429 response."""
+    return JSONResponse(
+        status_code=429,
+        content={
+            "error_code": "QUOTA_EXCEEDED",
+            "message": str(exc),
+            "reason": getattr(exc, 'reason', 'limit_exceeded'),
+            "daily_used": getattr(exc, 'daily_used', 0),
+            "daily_limit": getattr(exc, 'daily_limit', 0),
+            "monthly_used": getattr(exc, 'monthly_used', 0),
+            "monthly_limit": getattr(exc, 'monthly_limit', 0),
+        }
+    )
+
+
+@app.exception_handler(QuotaCheckError)
+async def quota_check_error_handler(request: Request, exc: QuotaCheckError):
+    """Handle quota check failures with clean 500 response."""
+    logging.error(f"Quota check failed on {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error_code": "QUOTA_CHECK_FAILED",
+            "message": "Unable to verify quota. Please try again later."
+        }
+    )
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    """
+    Catch-all exception handler.
+    SECURITY: Never expose stack traces or internal errors in production.
+    """
+    # Log the full error server-side
+    logging.exception(f"Unhandled exception on {request.method} {request.url.path}: {exc}")
+    
+    # Check if we're in debug mode
+    is_debug = os.getenv("DEBUG", "false").lower() == "true"
+    
+    if is_debug:
+        # In debug mode, include error message (but never stack trace)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error_code": "INTERNAL_ERROR",
+                "message": str(exc)[:200],  # Truncate long messages
+                "request_path": request.url.path
+            }
+        )
+    else:
+        # In production, return generic error
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error_code": "INTERNAL_ERROR",
+                "message": "An unexpected error occurred. Please try again later."
+            }
+        )
 
 # Feature flag for summary citations
 FEATURE_SUMMARY_CITATIONS = os.getenv('FEATURE_SUMMARY_CITATIONS', 'true').lower() == 'true'
@@ -139,6 +221,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Security middleware (rate limiting and request size limits)
+# NOTE: Middleware is applied in reverse order, so RequestSizeLimit runs first
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(RequestSizeLimitMiddleware)
+logging.info("Security middleware enabled: rate limiting and request size limits")
+
 # Register YouTube ingest routers (feature-flagged)
 FEATURE_YOUTUBE_INGEST = os.getenv("FEATURE_YOUTUBE_INGEST", "true").lower() == "true"
 ENABLE_DEBUG_ENDPOINTS = os.getenv("ENABLE_DEBUG_ENDPOINTS", "false").lower() == "true"
@@ -192,21 +280,24 @@ def init_db():
 
 # -------- YouTube flashcards save endpoint --------
 class SaveYouTubeCard(BaseModel):
-    front: str
-    back: str
-    cloze: Optional[str] = None
-    start_s: Optional[float] = None
-    end_s: Optional[float] = None
-    evidence: Optional[str] = None
-    difficulty: Optional[str] = None
-    tags: Optional[List[str]] = None
+    # SECURITY: Limit field sizes to prevent abuse
+    front: str = Field(..., max_length=5000)
+    back: str = Field(..., max_length=10000)
+    cloze: Optional[str] = Field(default=None, max_length=5000)
+    start_s: Optional[float] = Field(default=None, ge=0, le=86400)  # Max 24 hours
+    end_s: Optional[float] = Field(default=None, ge=0, le=86400)
+    evidence: Optional[str] = Field(default=None, max_length=2000)
+    difficulty: Optional[str] = Field(default=None, max_length=20)
+    tags: Optional[List[str]] = Field(default=None, max_length=20)
 
 class SaveYouTubeDeckRequest(BaseModel):
-    url: str
-    video_id: Optional[str] = None
-    title: Optional[str] = None
-    lang: Optional[str] = None
-    cards: List[SaveYouTubeCard]
+    # SECURITY: Limit field sizes and array lengths
+    url: str = Field(..., max_length=2048)
+    video_id: Optional[str] = Field(default=None, max_length=50)
+    title: Optional[str] = Field(default=None, max_length=500)
+    lang: Optional[str] = Field(default=None, max_length=20)
+    # SECURITY: Limit number of cards to prevent abuse
+    cards: List[SaveYouTubeCard] = Field(..., max_length=100)
 
 @app.post("/youtube/save")
 async def save_youtube_deck(payload: SaveYouTubeDeckRequest):
@@ -310,13 +401,13 @@ async def upload_pdf(
 async def generate_flashcards_endpoint(
     pdf_id: str, 
     background_tasks: BackgroundTasks,
-    x_user_id: Optional[str] = Header(None, alias="X-User-Id")
+    user_id: str = Depends(enforce_quota)  # SECURITY: Auth + quota in one dependency
 ):
     """Start flashcard generation process
     
-    Optional header: X-User-Id - Supabase auth user ID for deck creation
+    SECURITY: Requires authentication (X-User-Id header)
+    SECURITY: Uses Supabase RPC for atomic quota check (runs BEFORE OpenAI)
     """
-    
     # Check if PDF exists using dual-repo
     pdf_status = get_pdf_status(pdf_id)
     if not pdf_status:
@@ -326,11 +417,11 @@ async def generate_flashcards_endpoint(
     update_pdf_status(pdf_id, "processing")
     
     # Start background task with user_id
-    background_tasks.add_task(process_pdf_and_generate_flashcards, pdf_id, x_user_id)
+    background_tasks.add_task(process_pdf_and_generate_flashcards, pdf_id, user_id)
     
     return {"message": "Flashcard generation started", "pdf_id": pdf_id}
 
-async def process_pdf_and_generate_flashcards(pdf_id: str, user_id: Optional[str] = None):
+async def process_pdf_and_generate_flashcards(pdf_id: str, user_id: str):
     """
     Background task to process PDF and generate flashcards.
     
@@ -340,7 +431,7 @@ async def process_pdf_and_generate_flashcards(pdf_id: str, user_id: Optional[str
     
     Args:
         pdf_id: The PDF ID
-        user_id: Optional Supabase auth user ID for deck creation
+        user_id: Supabase auth user ID for deck creation and quota tracking
     """
     try:
         # Update status to processing using Supabase REST (authoritative)
@@ -357,7 +448,11 @@ async def process_pdf_and_generate_flashcards(pdf_id: str, user_id: Optional[str
             raise Exception("No text could be extracted from PDF")
         
         # Generate flashcards using OpenAI
+        # NOTE: Quota was already consumed atomically by enforce_quota dependency
         flashcards_data = generate_flashcards(text_content)
+        
+        # Log successful generation (quota already tracked via RPC)
+        logging.info(f"Generated {len(flashcards_data)} flashcards for user {user_id}")
         
         # Ensure deck exists in Supabase BEFORE inserting flashcards (required for foreign key constraint)
         deck_created = False
@@ -599,8 +694,15 @@ async def get_summary(source_id: str, db: Session = Depends(get_db)):
         return {"summary_id": None, "source_id": source_id, "sentences": [], "error": "fetch_failed"}
 
 @app.post("/summaries/{source_id}/refresh")
-async def refresh_summary(source_id: str):
-    """Enqueue or run summary build for a source"""
+async def refresh_summary(
+    source_id: str,
+    user_id: str = Depends(enforce_quota)  # SECURITY: Auth + quota in one dependency
+):
+    """Enqueue or run summary build for a source
+    
+    SECURITY: Requires authentication
+    SECURITY: Uses Supabase RPC for atomic quota check (runs BEFORE OpenAI)
+    """
     if not FEATURE_SUMMARY_CITATIONS:
         raise HTTPException(status_code=404, detail="Feature not enabled")
     
@@ -611,6 +713,7 @@ async def refresh_summary(source_id: str):
             raise HTTPException(status_code=404, detail="Source not found")
         
         # Enqueue to Celery/RQ if available, else run inline in DEV
+        # NOTE: Quota was already consumed atomically by enforce_quota dependency
         if USE_CELERY:
             task_id = enqueue_build_summary(source_id, TOP_K, THRESH, SUMMARY_MODEL)
             summary_logger.info(f"[refresh] enqueued source={source_id} task={task_id}")
@@ -747,16 +850,15 @@ async def health_check():
                 result = db.execute(text("SELECT COUNT(*) FROM pdfs"))
                 pdf_count = result.scalar() or 0
         
-        # Check OpenAI key presence (masked)
-        openai_key = os.getenv("OPENAI_API_KEY")
-        has_openai = bool(openai_key)
+        # Check OpenAI key presence (boolean only - no key exposure)
+        has_openai = bool(os.getenv("OPENAI_API_KEY"))
         
         return {
             "ok": True,
             "database_writable": True,
             "pdf_count": pdf_count,
             "openai_configured": has_openai,
-            "openai_key_masked": f"{openai_key[:8]}..." if openai_key else None,
+            # SECURITY: Removed openai_key_masked to prevent partial key exposure
             "feature_enabled": FEATURE_SUMMARY_CITATIONS,
             "use_celery": USE_CELERY,
             "config": {
