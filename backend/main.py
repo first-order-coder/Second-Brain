@@ -300,11 +300,16 @@ class SaveYouTubeDeckRequest(BaseModel):
     cards: List[SaveYouTubeCard] = Field(..., max_length=100)
 
 @app.post("/youtube/save")
-async def save_youtube_deck(payload: SaveYouTubeDeckRequest):
+async def save_youtube_deck(
+    payload: SaveYouTubeDeckRequest,
+    user_id: str = Depends(get_current_user)  # SECURITY: Require auth to prevent abuse
+):
     """Save generated YouTube cards into the existing SQLite-backed deck.
 
     Creates a new entry in `pdfs` as a logical source and inserts cards into `flashcards`.
     Returns the created `pdf_id` for navigation to the review page.
+    
+    SECURITY: Requires authentication to prevent storage abuse.
     """
     try:
         # Allocate a synthetic pdf_id to reuse existing flashcards viewer
@@ -320,6 +325,19 @@ async def save_youtube_deck(payload: SaveYouTubeDeckRequest):
 
         # Insert source row as completed using dual-write
         upsert_pdf(pdf_id, source_label, "completed")
+        
+        # SECURITY: Create deck in Supabase with authenticated user_id
+        try:
+            deck_title = payload.title or f"YouTube: {payload.video_id}" if payload.video_id else "YouTube Deck"
+            create_deck_in_supabase(
+                deck_id=pdf_id,
+                title=deck_title,
+                source_type="youtube",
+                source_label=source_label,
+                user_id=user_id
+            )
+        except Exception as deck_error:
+            logging.warning(f"Failed to create deck in Supabase: {deck_error}")
 
         # Insert cards using dual-write
         for idx, c in enumerate(payload.cards, start=1):

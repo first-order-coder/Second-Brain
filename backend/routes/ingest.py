@@ -1,6 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from starlette.responses import JSONResponse
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, HttpUrl, Field
 import logging
 from youtube_transcript_api import TranscriptsDisabled, NoTranscriptFound, VideoUnavailable
 from services.youtube_utils import extract_video_id
@@ -8,16 +8,21 @@ from services.youtube_transcripts import (
     fetch_best_transcript_or_fallback,
     NoTranscriptAvailable,
 )
+from security.auth import require_auth
 
 router = APIRouter(prefix="/ingest", tags=["ingest"])
 logger = logging.getLogger("ingest")
 
 class IngestUrlIn(BaseModel):
-    url: HttpUrl
-    kind: str = "youtube"
+    # SECURITY: Limit URL length to prevent abuse
+    url: HttpUrl = Field(..., max_length=2048)
+    kind: str = Field(default="youtube", max_length=50)
 
 @router.post("/url")
-async def ingest_url(payload: IngestUrlIn):
+async def ingest_url(
+    payload: IngestUrlIn,
+    user_id: str = Depends(require_auth)  # SECURITY: Require authentication
+):
     if payload.kind != "youtube":
         raise HTTPException(status_code=400, detail="Only YouTube links supported here")
     url = str(payload.url)
