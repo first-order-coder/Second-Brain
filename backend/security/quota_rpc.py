@@ -112,6 +112,11 @@ async def enforce_quota_rpc(user_id: str) -> Dict[str, Any]:
             monthly_token_limit=monthly_limit
         )
         
+        # --- DEFENSIVE: Validate result is a dict before accessing ---
+        if not isinstance(result, dict):
+            logger.error(f"consume_quota returned non-dict: {type(result).__name__}")
+            raise QuotaCheckError(f"Invalid quota response type: {type(result).__name__}")
+        
         # Check if this was a fallback (Supabase not configured)
         if result.get("fallback"):
             logger.warning(f"Quota check using fallback for user {user_id}")
@@ -122,10 +127,11 @@ async def enforce_quota_rpc(user_id: str) -> Dict[str, Any]:
                 "fallback": True
             }
         
-        allowed = result.get("allowed", False)
-        reason = result.get("reason")
-        daily_used = result.get("daily_requests_used", 0)
-        monthly_used = result.get("monthly_tokens_used", 0)
+        # Extract values with safe defaults
+        allowed = bool(result.get("allowed", False))
+        reason = result.get("reason") or "unknown"
+        daily_used = int(result.get("daily_requests_used", 0) or 0)
+        monthly_used = int(result.get("monthly_tokens_used", 0) or 0)
         
         if not allowed:
             logger.warning(
@@ -155,7 +161,9 @@ async def enforce_quota_rpc(user_id: str) -> Dict[str, Any]:
         }
         
     except QuotaExceededError:
-        raise  # Re-raise quota exceeded
+        raise  # Re-raise quota exceeded (returns 429)
+    except QuotaCheckError:
+        raise  # Re-raise controlled quota check errors
     except Exception as e:
         logger.error(f"Quota check failed for user {user_id}: {e}")
         
@@ -193,12 +201,19 @@ async def enforce_quota(
         async def endpoint(user_id: str = Depends(enforce_quota)):
             # Quota already consumed, proceed with OpenAI call
             ...
+    
+    HTTP Status Codes:
+        200: Quota available, request proceeds
+        401: Authentication required (from require_auth)
+        429: Quota exceeded (QUOTA_EXCEEDED)
+        500: Quota system error (QUOTA_RPC_ERROR)
     """
     try:
         await enforce_quota_rpc(user_id)
         return user_id
         
     except QuotaExceededError as e:
+        # User exceeded their quota - return 429
         raise HTTPException(
             status_code=429,
             detail={
@@ -213,11 +228,13 @@ async def enforce_quota(
         )
         
     except QuotaCheckError as e:
+        # Infrastructure error - return 500 with stable error code
+        logger.error(f"Quota infrastructure error for user {user_id}: {e}")
         raise HTTPException(
             status_code=500,
             detail={
-                "error_code": "QUOTA_CHECK_FAILED",
-                "message": "Quota check failed. Please try again later."
+                "error_code": "QUOTA_RPC_ERROR",
+                "message": "Quota system temporarily unavailable. Please try again later."
             }
         )
 

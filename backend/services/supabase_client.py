@@ -181,8 +181,32 @@ def consume_quota(
     
     try:
         result = call_rpc("consume_quota", params)
-        logger.debug(f"consume_quota result for {user_id}: {result}")
-        return result
+        
+        # --- FIX: Supabase RPC returning TABLE yields a list of rows ---
+        # Safe debug logging (no secrets)
+        logger.debug(f"consume_quota raw response type: {type(result).__name__}, "
+                     f"len: {len(result) if isinstance(result, list) else 'N/A'}")
+        
+        # Normalize response: extract single row from list if needed
+        row: Dict[str, Any]
+        if isinstance(result, list):
+            if len(result) == 0:
+                raise RuntimeError("Empty RPC response from consume_quota")
+            row = result[0]
+            if not isinstance(row, dict):
+                raise RuntimeError(f"Invalid RPC row type: {type(row).__name__}")
+        elif isinstance(result, dict):
+            row = result
+        else:
+            raise RuntimeError(f"Unexpected RPC response type: {type(result).__name__}")
+        
+        logger.debug(f"consume_quota parsed for {user_id}: allowed={row.get('allowed')}, "
+                     f"reason={row.get('reason')}")
+        return row
+        
+    except RuntimeError:
+        # Re-raise RuntimeError (our controlled errors)
+        raise
     except Exception as e:
         logger.error(f"consume_quota RPC failed for user {user_id}: {e}")
         
