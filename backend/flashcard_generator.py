@@ -116,21 +116,63 @@ def generate_flashcards(text_content: str) -> List[Dict[str, str]]:
         logger.warning(f"Truncating input from {len(text_content)} to {MAX_INPUT_CHARS} chars")
         text_content = text_content[:MAX_INPUT_CHARS] + "..."
     
-    prompt = f"""From this PDF content, create exactly 10 high-quality flashcards.
+    prompt = f"""You are an expert educational content designer specializing in creating high-impact flashcards for deep learning and long-term retention. Your task is to extract and synthesize the most valuable knowledge from the provided PDF content into exactly 10 strategic flashcards.
 
-IMPORTANT: You must respond with ONLY a valid JSON array. Do NOT include any markdown code fences, explanations, or additional text. Start your response with [ and end with ].
+RESPONSE FORMAT REQUIREMENT - CRITICAL:
+You MUST respond with ONLY a valid JSON array. Do NOT include any markdown code fences.
 
-Format: A JSON array of objects, each with 'question' and 'answer' fields.
+JSON Structure:
+Return a JSON array containing exactly 10 objects. Each object MUST have precisely two fields:
+- "question": (string) The question posed to the learner
+- "answer": (string) The corresponding answer
 
-Requirements:
-- Make questions test understanding, not just memorization
-- Keep answers concise (1-2 sentences max)
-- Ensure questions cover the most important concepts from the content
-- Return ONLY the JSON array, nothing else
+FLASHCARD DESIGN PRINCIPLES:
 
-PDF Content: {text_content}
+Question Quality Standards:
+- Design questions to test comprehension, application, and synthesis—not mere factual recall
+- Ask "why," "how," and "what if" questions that promote deeper understanding
+- Include context-specific scenarios where applicable
+- Avoid yes/no or single-word answer questions
+- Frame questions to reveal misconceptions and test nuanced understanding
+- Prioritize questions that bridge theory and practical application
 
-Your response must be valid JSON starting with [ and ending with ]:"""
+Answer Quality Standards:
+- Keep answers concise and precise (1-2 sentences maximum, ideally under 50 words)
+- Ensure answers directly and completely address the question asked
+- Include only essential information; omit redundancy
+- Use clear, accessible language appropriate to the content domain
+- Where applicable, include brief supporting evidence or reasoning within the answer
+
+Content Selection Strategy:
+- Identify and prioritize the 10 most foundational, high-impact concepts from the PDF
+- Balance coverage across different topic areas and complexity levels
+- Ensure questions build on each other, forming a coherent knowledge structure
+- Include at least 2-3 questions that address critical relationships between concepts
+- Exclude trivial details; focus on knowledge that has broad applicability
+- Where relevant, include one question addressing common misconceptions or edge cases
+
+Cognitive Difficulty Distribution:
+- Include 2-3 foundational definition/concept questions (basic understanding)
+- Include 3-4 application/analysis questions (intermediate difficulty)
+- Include 2-3 synthesis/evaluation questions (higher-order thinking)
+
+Validation Before Response:
+- Verify exactly 10 flashcards are included
+- Confirm each flashcard has both "question" and "answer" fields with string values
+- Ensure the JSON is valid and properly formatted
+- Test that your response can be parsed as JSON without errors
+
+CRITICAL RESTRICTIONS (NON-NEGOTIABLE):
+- Return ONLY valid JSON array format: starts with [ and ends with ]
+- NO markdown code fences
+- NO explanatory text, preamble, or closing remarks
+- NO deviation from the exact 10-flashcard requirement
+- NO nested structures other than the required "question" and "answer" fields
+
+PDF Content:
+{text_content}
+
+Your response must be valid, parseable JSON with exactly 10 flashcard objects, starting with [ and ending with ]:"""
 
     try:
         logger.info("Making OpenAI API call...")
