@@ -4,10 +4,6 @@
 </p>
 A comprehensive AI-powered learning platform that converts PDF documents and YouTube videos into interactive flashcards and summaries for enhanced learning.
 
-<p align="center">
-  <img src="Practice/swi/assest_1.jpeg" alt="Project screenshot" width="900" />
-</p>
-
 ## 🚀 Features
 
 ### 📄 PDF Flashcard Generation
